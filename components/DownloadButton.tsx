@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { StyleData } from '@/app/page'
+import { isLoaded, materialsToLabel, type StyleData } from '@/app/types'
 
 interface DownloadButtonProps {
   styles: StyleData[]
@@ -12,6 +12,8 @@ function buildPromptsText(styles: StyleData[]): string {
   styles.forEach((style, si) => {
     lines.push(`STYLE ${si + 1}: ${style.name}`)
     lines.push(style.description)
+    const mats = materialsToLabel(style.materials)
+    if (mats) lines.push(`Materials: ${mats}`)
     lines.push('')
     style.prompts.forEach((p, pi) => {
       lines.push(`  ${pi + 1}. ${p}`)
@@ -29,7 +31,7 @@ export default function DownloadButton({ styles }: DownloadButtonProps) {
   const successfulImages = styles.flatMap((style, si) =>
     style.images
       .map((img, pi) =>
-        img && 'imageBase64' in img
+        isLoaded(img)
           ? {
               imageBase64: img.imageBase64,
               mimeType: img.mimeType,
