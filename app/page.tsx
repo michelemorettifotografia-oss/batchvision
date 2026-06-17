@@ -128,16 +128,6 @@ export default function Home() {
     }
   }
 
-  const allImages = styles.flatMap((style, si) =>
-    style.images
-      .map((img, pi) =>
-        img && 'imageBase64' in img
-          ? { imageBase64: img.imageBase64, mimeType: img.mimeType, filename: `style${si + 1}_${style.name.replace(/\s+/g, '_')}_${pi + 1}` }
-          : null
-      )
-      .filter((x): x is { imageBase64: string; mimeType: string; filename: string } => x !== null)
-  )
-
   return (
     <main className="min-h-screen bg-gray-900 text-white">
       <div className="max-w-7xl mx-auto px-4 py-10">
@@ -177,9 +167,9 @@ export default function Home() {
           </div>
         )}
 
-        {allImages.length > 0 && !isGenerating && (
+        {styles.length > 0 && !isGenerating && (
           <div className="mt-8 flex justify-center">
-            <DownloadButton images={allImages} />
+            <DownloadButton styles={styles} />
           </div>
         )}
 
