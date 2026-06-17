@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import {
+  ASPECT_RATIOS,
   BACKGROUND_PRESETS,
   DEFAULT_ADAPT,
   type AdaptOptions,
+  type AspectRatio,
   type BriefData,
   type ImageRef,
   type ReferenceMode,
@@ -39,6 +41,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [constraints, setConstraints] = useState('')
   const [styleCount, setStyleCount] = useState(5)
   const [promptsPerStyle, setPromptsPerStyle] = useState(8)
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1')
 
   const [referenceImage, setReferenceImage] = useState<UploadedImage | null>(null)
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>('exact')
@@ -87,6 +90,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
       constraints: constraints.trim(),
       styleCount,
       promptsPerStyle,
+      aspectRatio,
       reference: {
         image: referenceImage ? { data: referenceImage.data, mimeType: referenceImage.mimeType } : null,
         mode: referenceMode,
@@ -168,6 +172,23 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
           </div>
         </div>
         <p className="text-gray-500 text-xs">{styleCount * promptsPerStyle} images will be generated in total.</p>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Aspect ratio</label>
+          <div className="grid grid-cols-3 gap-2">
+            {ASPECT_RATIOS.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setAspectRatio(r.value)}
+                disabled={isWorking}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${aspectRatio === r.value ? 'border-blue-500 bg-blue-600/20' : 'border-gray-600 bg-gray-700 hover:border-gray-500'}`}
+              >
+                <span className="block text-sm font-medium text-white">{r.label}</span>
+                <span className="block text-xs text-gray-400">{r.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* ---- Reference product ---- */}

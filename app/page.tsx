@@ -5,6 +5,7 @@ import PromptForm from '@/components/PromptForm'
 import PromptReview from '@/components/PromptReview'
 import StyleSection from '@/components/StyleSection'
 import DownloadButton from '@/components/DownloadButton'
+import Lightbox from '@/components/Lightbox'
 import {
   EMPTY_MATERIALS,
   type BriefData,
@@ -12,6 +13,8 @@ import {
   type MaterialSpec,
   type StyleData,
 } from '@/app/types'
+
+const keyOf = (si: number, pi: number) => `${si}-${pi}`
 
 type Phase = 'input' | 'review' | 'images'
 
@@ -52,13 +55,17 @@ export default function Home() {
   const [isWorking, setIsWorking] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string>('')
+  const [selected, setSelected] = useState<Record<string, boolean>>({})
+  const [lightbox, setLightbox] = useState<{ si: number; pi: number } | null>(null)
 
   const totalImages = styles.reduce((sum, s) => sum + s.prompts.length, 0)
+  const selectedCount = Object.values(selected).filter(Boolean).length
 
   // Builds the structured request body for a single image generation.
   const imageRequestBody = (brief: BriefData | null, prompt: string, materials: MaterialSpec) => ({
     prompt,
     materials,
+    aspectRatio: brief?.aspectRatio ?? '1:1',
     reference: brief?.reference?.image
       ? { image: brief.reference.image, mode: brief.reference.mode, adapt: brief.reference.adapt }
       : null,
@@ -66,6 +73,25 @@ export default function Home() {
       ? { description: brief.background.description, image: brief.background.image }
       : null,
   })
+
+  // Generate a single slot's image and return the resulting ImageSlot (no state mutation).
+  const generateSlot = async (si: number, pi: number): Promise<ImageSlot> => {
+    const style = styles[si]
+    if (!style) return { error: 'Missing style' }
+    try {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(imageRequestBody(briefData, style.prompts[pi], style.materials)),
+      })
+      const data = await readJsonSafe(res)
+      return data.imageBase64 && !data.error
+        ? { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
+        : { error: (data.error as string) || 'No image returned' }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Request failed' }
+    }
+  }
 
   // Step 1 — generate prompts, then show the review screen
   const handleGeneratePrompts = async (data: BriefData) => {
@@ -196,42 +222,42 @@ export default function Home() {
     }
   }
 
-  // Regenerate a single image (used from each card)
-  const handleRegenerate = async (styleIndex: number, promptIndex: number) => {
-    const style = styles[styleIndex]
-    if (!style) return
-    const prompt = style.prompts[promptIndex]
-
-    // mark this slot as loading
+  const setSlot = (si: number, pi: number, slot: ImageSlot) => {
     setStyles((prev) => {
       const next = prev.map((s) => ({ ...s, images: [...s.images] }))
-      next[styleIndex].images[promptIndex] = null
+      next[si].images[pi] = slot
       return next
     })
-
-    try {
-      const res = await fetch('/api/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(imageRequestBody(briefData, prompt, style.materials)),
-      })
-      const data = await readJsonSafe(res)
-      setStyles((prev) => {
-        const next = prev.map((s) => ({ ...s, images: [...s.images] }))
-        next[styleIndex].images[promptIndex] =
-          data.imageBase64 && !data.error
-            ? { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
-            : { error: (data.error as string) || 'No image returned' }
-        return next
-      })
-    } catch (err) {
-      setStyles((prev) => {
-        const next = prev.map((s) => ({ ...s, images: [...s.images] }))
-        next[styleIndex].images[promptIndex] = { error: err instanceof Error ? err.message : 'Request failed' }
-        return next
-      })
-    }
   }
+
+  // Regenerate a single image (used from each card / lightbox)
+  const handleRegenerate = async (si: number, pi: number) => {
+    setSlot(si, pi, null) // show loading
+    setSlot(si, pi, await generateSlot(si, pi))
+  }
+
+  // Generate N fresh variants of one prompt without touching the grid.
+  const handleGenerateVariants = async (si: number, pi: number, count: number): Promise<ImageSlot[]> => {
+    return Promise.all(Array.from({ length: count }, () => generateSlot(si, pi)))
+  }
+
+  // Adopt a chosen variant into the grid slot.
+  const handleAdopt = (si: number, pi: number, image: { imageBase64: string; mimeType: string }) => {
+    setSlot(si, pi, image)
+  }
+
+  const toggleSelect = (si: number, pi: number) =>
+    setSelected((prev) => ({ ...prev, [keyOf(si, pi)]: !prev[keyOf(si, pi)] }))
+
+  const selectAll = () => {
+    const all: Record<string, boolean> = {}
+    styles.forEach((s, si) => s.images.forEach((img, pi) => {
+      if (img && 'imageBase64' in img) all[keyOf(si, pi)] = true
+    }))
+    setSelected(all)
+  }
+
+  const clearSelection = () => setSelected({})
 
   const handleReset = () => {
     setPhase('input')
@@ -239,6 +265,8 @@ export default function Home() {
     setStatus('')
     setError('')
     setProgress(0)
+    setSelected({})
+    setLightbox(null)
   }
 
   const handleBackToReview = () => {
@@ -301,17 +329,23 @@ export default function Home() {
         {phase === 'images' && styles.length > 0 && (
           <>
             {!isWorking && (
-              <div className="mt-8 flex flex-wrap justify-center gap-3">
-                <DownloadButton styles={styles} />
+              <div className="mt-8 flex flex-wrap justify-center items-center gap-3">
+                <DownloadButton styles={styles} selected={selected} />
+                <button
+                  onClick={selectedCount > 0 ? clearSelection : selectAll}
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
+                >
+                  {selectedCount > 0 ? `Clear selection (${selectedCount})` : 'Select all'}
+                </button>
                 <button
                   onClick={handleBackToReview}
-                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-6 rounded-lg transition-colors"
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
                 >
                   ← Edit Prompts
                 </button>
                 <button
                   onClick={handleReset}
-                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-6 rounded-lg transition-colors"
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
                 >
                   New Brief
                 </button>
@@ -324,7 +358,11 @@ export default function Home() {
                   key={index}
                   style={style}
                   styleIndex={index}
+                  aspectRatio={briefData?.aspectRatio ?? '1:1'}
                   onRegenerate={handleRegenerate}
+                  onOpen={(si, pi) => setLightbox({ si, pi })}
+                  onToggleSelect={toggleSelect}
+                  selected={selected}
                   busy={isWorking}
                 />
               ))}
@@ -332,6 +370,21 @@ export default function Home() {
           </>
         )}
       </div>
+
+      {lightbox && (
+        <Lightbox
+          styles={styles}
+          position={lightbox}
+          aspectRatio={briefData?.aspectRatio ?? '1:1'}
+          selected={selected}
+          onClose={() => setLightbox(null)}
+          onNavigate={setLightbox}
+          onRegenerate={handleRegenerate}
+          onToggleSelect={toggleSelect}
+          onGenerateVariants={handleGenerateVariants}
+          onAdopt={handleAdopt}
+        />
+      )}
     </main>
   )
 }
