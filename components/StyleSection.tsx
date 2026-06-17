@@ -2,19 +2,21 @@
 
 import { useState } from 'react'
 import ImageCard from './ImageCard'
-import { StyleData, ImageSlot } from '@/app/page'
+import { isLoaded, materialsToLabel, type StyleData } from '@/app/types'
 
 interface StyleSectionProps {
   style: StyleData
   styleIndex: number
+  onRegenerate: (styleIndex: number, promptIndex: number) => void
+  busy?: boolean
 }
 
-export default function StyleSection({ style, styleIndex }: StyleSectionProps) {
+export default function StyleSection({ style, styleIndex, onRegenerate, busy }: StyleSectionProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  const loadedCount = style.images.filter((img): img is ImageSlot & { imageBase64: string } =>
-    img !== null && 'imageBase64' in img
-  ).length
+  const loadedCount = style.images.filter(isLoaded).length
+  const materialsLabel = materialsToLabel(style.materials)
+  const safeName = style.name.replace(/\s+/g, '_')
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -29,6 +31,7 @@ export default function StyleSection({ style, styleIndex }: StyleSectionProps) {
           <div className="text-left">
             <h3 className="text-white font-semibold">{style.name}</h3>
             <p className="text-gray-400 text-sm">{style.description}</p>
+            {materialsLabel && <p className="text-gray-500 text-xs mt-0.5">Materials: {materialsLabel}</p>}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -51,6 +54,9 @@ export default function StyleSection({ style, styleIndex }: StyleSectionProps) {
                 prompt={prompt}
                 image={style.images[pi]}
                 index={pi}
+                filename={`style${styleIndex + 1}_${safeName}_${pi + 1}`}
+                onRegenerate={() => onRegenerate(styleIndex, pi)}
+                disabled={busy}
               />
             ))}
           </div>

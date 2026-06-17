@@ -1,17 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
+import { materialsToText, type MaterialSpec, type ImageRef, type AdaptOptions, type ReferenceMode } from '@/app/types'
 
-interface ReferenceImage {
-  data: string
-  mimeType: string
+interface RequestBody {
+  prompt?: string
+  materials?: MaterialSpec | null
+  reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
+  background?: { description: string; image: ImageRef | null } | null
+}
+
+function adaptToText(adapt: AdaptOptions): string {
+  const allowed: string[] = []
+  if (adapt.moveNozzles) allowed.push('reposition the nozzles/spouts')
+  if (adapt.changeButtons) allowed.push('redesign the buttons and controls')
+  if (adapt.modifyLights) allowed.push('change the lighting elements, screens and indicators')
+  if (adapt.generateProposals) allowed.push('propose a bolder variation that noticeably transforms the product while keeping its core function recognizable')
+  let t = ''
+  if (allowed.length) t += ` You MAY modify the product in these ways: ${allowed.join('; ')}.`
+  if (adapt.notes?.trim()) t += ` Additional design direction: ${adapt.notes.trim()}.`
+  return t
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, referenceImage } = await req.json() as {
-      prompt?: string
-      referenceImage?: ReferenceImage | null
-    }
+    const { prompt, materials, reference, background } = (await req.json()) as RequestBody
 
     if (!prompt) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
@@ -23,19 +35,42 @@ export async function POST(req: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-3.1-flash-image',
-    })
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-image' })
 
     const parts: Part[] = []
-    if (referenceImage?.data) {
-      parts.push({ inlineData: { data: referenceImage.data, mimeType: referenceImage.mimeType } })
-      parts.push({
-        text: `Use the attached photo as the product identity reference. Keep the SAME product type, overall form and proportions as in the reference. Do not add unrelated objects. Restyle it as follows: ${prompt}`,
-      })
-    } else {
-      parts.push({ text: prompt })
+    let instruction = ''
+
+    const hasReference = !!reference?.image?.data
+    const hasBgImage = !!background?.image?.data
+
+    if (hasReference && reference?.image) {
+      parts.push({ inlineData: { data: reference.image.data, mimeType: reference.image.mimeType } })
+      if (reference.mode === 'exact') {
+        instruction +=
+          'The first attached image is the actual product. Reproduce THIS EXACT product — identical geometry, proportions, parts, controls and layout. Do not change its structure or invent new parts; only apply the restyling, materials and scene described below. '
+      } else {
+        instruction +=
+          'The first attached image is the actual product. Keep its overall proportions, dimensions and general layout as the base.' +
+          adaptToText(reference.adapt) +
+          ' Otherwise keep the product recognizable. '
+      }
     }
+
+    if (hasBgImage && background?.image) {
+      parts.push({ inlineData: { data: background.image.data, mimeType: background.image.mimeType } })
+      instruction += `The ${hasReference ? 'second' : 'first'} attached image is the desired background/scene. Place the product naturally into this background with correct perspective, scale, contact shadows and reflections. `
+    }
+
+    instruction += prompt
+
+    const mt = materialsToText(materials)
+    if (mt) instruction += `\n${mt}`
+
+    if (!hasBgImage && background?.description?.trim()) {
+      instruction += `\nBackground / scene: ${background.description.trim()}.`
+    }
+
+    parts.push({ text: instruction })
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts }],
@@ -50,7 +85,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No response parts from Gemini' }, { status: 500 })
     }
 
-    const imagePart = responseParts.find((p: { inlineData?: { data: string; mimeType: string }; text?: string }) => p.inlineData)
+    const imagePart = responseParts.find(
+      (p: { inlineData?: { data: string; mimeType: string }; text?: string }) => p.inlineData
+    )
     if (!imagePart?.inlineData) {
       return NextResponse.json({ error: 'No image in response' }, { status: 500 })
     }

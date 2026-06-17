@@ -5,27 +5,13 @@ import PromptForm from '@/components/PromptForm'
 import PromptReview from '@/components/PromptReview'
 import StyleSection from '@/components/StyleSection'
 import DownloadButton from '@/components/DownloadButton'
-
-export type ImageSlot =
-  | { imageBase64: string; mimeType: string }
-  | { error: string }
-  | null
-
-export interface StyleData {
-  name: string
-  description: string
-  materials: string
-  prompts: string[]
-  images: ImageSlot[]
-}
-
-export interface BriefData {
-  machine: string
-  brief: string
-  setting: string
-  constraints: string
-  referenceImage: { data: string; mimeType: string } | null
-}
+import {
+  EMPTY_MATERIALS,
+  type BriefData,
+  type ImageSlot,
+  type MaterialSpec,
+  type StyleData,
+} from '@/app/types'
 
 type Phase = 'input' | 'review' | 'images'
 
@@ -43,6 +29,21 @@ async function readJsonSafe(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+// Materials may arrive as a structured object or (older shape) a string.
+function normalizeMaterials(raw: unknown): MaterialSpec {
+  if (raw && typeof raw === 'object') {
+    const m = raw as Partial<MaterialSpec>
+    return {
+      primary: m.primary ?? '',
+      accent: m.accent ?? '',
+      finish: m.finish ?? '',
+      palette: m.palette ?? '',
+    }
+  }
+  if (typeof raw === 'string') return { ...EMPTY_MATERIALS, primary: raw }
+  return { ...EMPTY_MATERIALS }
+}
+
 export default function Home() {
   const [phase, setPhase] = useState<Phase>('input')
   const [briefData, setBriefData] = useState<BriefData | null>(null)
@@ -53,6 +54,18 @@ export default function Home() {
   const [error, setError] = useState<string>('')
 
   const totalImages = styles.reduce((sum, s) => sum + s.prompts.length, 0)
+
+  // Builds the structured request body for a single image generation.
+  const imageRequestBody = (brief: BriefData | null, prompt: string, materials: MaterialSpec) => ({
+    prompt,
+    materials,
+    reference: brief?.reference?.image
+      ? { image: brief.reference.image, mode: brief.reference.mode, adapt: brief.reference.adapt }
+      : null,
+    background: brief?.background
+      ? { description: brief.background.description, image: brief.background.image }
+      : null,
+  })
 
   // Step 1 — generate prompts, then show the review screen
   const handleGeneratePrompts = async (data: BriefData) => {
@@ -75,7 +88,7 @@ export default function Home() {
       }
 
       const promptsData = await readJsonSafe(res)
-      const rawStyles = promptsData.styles as Array<{ name: string; description: string; materials?: string; prompts: string[] }> | undefined
+      const rawStyles = promptsData.styles as Array<{ name: string; description: string; materials?: unknown; prompts: string[] }> | undefined
       if (!Array.isArray(rawStyles)) {
         throw new Error((promptsData.error as string) || 'Invalid response from prompt generation')
       }
@@ -84,7 +97,7 @@ export default function Home() {
         rawStyles.map((s) => ({
           name: s.name,
           description: s.description,
-          materials: s.materials ?? '',
+          materials: normalizeMaterials(s.materials),
           prompts: s.prompts,
           images: new Array(s.prompts.length).fill(null),
         }))
@@ -106,10 +119,10 @@ export default function Home() {
     })
   }
 
-  const handleMaterialsChange = (styleIndex: number, value: string) => {
+  const handleMaterialsChange = (styleIndex: number, field: keyof MaterialSpec, value: string) => {
     setStyles((prev) => {
-      const next = prev.map((s) => ({ ...s }))
-      next[styleIndex].materials = value
+      const next = prev.map((s) => ({ ...s, materials: { ...s.materials } }))
+      next[styleIndex].materials[field] = value
       return next
     })
   }
@@ -124,30 +137,28 @@ export default function Home() {
     const working = styles.map((s) => ({ ...s, images: new Array(s.prompts.length).fill(null) as ImageSlot[] }))
     setStyles(working)
 
-    const allPrompts: Array<{ styleIndex: number; promptIndex: number; prompt: string }> = []
+    const jobs: Array<{ styleIndex: number; promptIndex: number; prompt: string; materials: MaterialSpec }> = []
     working.forEach((style, si) => {
-      const materials = style.materials.trim()
       style.prompts.forEach((prompt, pi) => {
-        const effectivePrompt = materials ? `${prompt}\nMaterials & finish to use: ${materials}` : prompt
-        allPrompts.push({ styleIndex: si, promptIndex: pi, prompt: effectivePrompt })
+        jobs.push({ styleIndex: si, promptIndex: pi, prompt, materials: style.materials })
       })
     })
 
-    const total = allPrompts.length
+    const total = jobs.length
     const batchSize = 4
     let completed = 0
 
     try {
-      for (let i = 0; i < allPrompts.length; i += batchSize) {
-        const batch = allPrompts.slice(i, i + batchSize)
+      for (let i = 0; i < jobs.length; i += batchSize) {
+        const batch = jobs.slice(i, i + batchSize)
         setStatus(`Generating images ${completed + 1}–${Math.min(completed + batchSize, total)} / ${total}`)
 
         const batchResults = await Promise.allSettled(
-          batch.map(async ({ prompt }) => {
+          batch.map(async ({ prompt, materials }) => {
             const res = await fetch('/api/generate-image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt, referenceImage: briefData?.referenceImage ?? null }),
+              body: JSON.stringify(imageRequestBody(briefData, prompt, materials)),
             })
             return readJsonSafe(res)
           })
@@ -185,6 +196,43 @@ export default function Home() {
     }
   }
 
+  // Regenerate a single image (used from each card)
+  const handleRegenerate = async (styleIndex: number, promptIndex: number) => {
+    const style = styles[styleIndex]
+    if (!style) return
+    const prompt = style.prompts[promptIndex]
+
+    // mark this slot as loading
+    setStyles((prev) => {
+      const next = prev.map((s) => ({ ...s, images: [...s.images] }))
+      next[styleIndex].images[promptIndex] = null
+      return next
+    })
+
+    try {
+      const res = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(imageRequestBody(briefData, prompt, style.materials)),
+      })
+      const data = await readJsonSafe(res)
+      setStyles((prev) => {
+        const next = prev.map((s) => ({ ...s, images: [...s.images] }))
+        next[styleIndex].images[promptIndex] =
+          data.imageBase64 && !data.error
+            ? { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
+            : { error: (data.error as string) || 'No image returned' }
+        return next
+      })
+    } catch (err) {
+      setStyles((prev) => {
+        const next = prev.map((s) => ({ ...s, images: [...s.images] }))
+        next[styleIndex].images[promptIndex] = { error: err instanceof Error ? err.message : 'Request failed' }
+        return next
+      })
+    }
+  }
+
   const handleReset = () => {
     setPhase('input')
     setStyles([])
@@ -193,13 +241,19 @@ export default function Home() {
     setProgress(0)
   }
 
+  const handleBackToReview = () => {
+    setPhase('review')
+    setStatus('')
+    setError('')
+  }
+
   return (
     <main className="min-h-screen bg-gray-900 text-white">
       <div className="max-w-7xl mx-auto px-4 py-10">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-white mb-2">BatchVision</h1>
           <p className="text-gray-400 text-lg">AI Product Design Studio</p>
-          <p className="text-gray-500 text-sm mt-1">Generate product design images across 5 styles using Google Gemini</p>
+          <p className="text-gray-500 text-sm mt-1">Generate product design concepts from a brief or a real product photo, with Google Gemini</p>
         </div>
 
         {phase === 'input' && (
@@ -250,6 +304,12 @@ export default function Home() {
               <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <DownloadButton styles={styles} />
                 <button
+                  onClick={handleBackToReview}
+                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-6 rounded-lg transition-colors"
+                >
+                  ← Edit Prompts
+                </button>
+                <button
                   onClick={handleReset}
                   className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-6 rounded-lg transition-colors"
                 >
@@ -260,7 +320,13 @@ export default function Home() {
 
             <div className="mt-10 space-y-8">
               {styles.map((style, index) => (
-                <StyleSection key={index} style={style} styleIndex={index} />
+                <StyleSection
+                  key={index}
+                  style={style}
+                  styleIndex={index}
+                  onRegenerate={handleRegenerate}
+                  busy={isWorking}
+                />
               ))}
             </div>
           </>
