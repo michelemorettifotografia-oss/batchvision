@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
-import { aspectInstruction, materialsToText, type AspectRatio, type MaterialSpec, type ImageRef, type AdaptOptions, type ReferenceMode } from '@/app/types'
+import { aspectInstruction, manufacturingInstruction, materialsToText, type AspectRatio, type MaterialSpec, type ImageRef, type AdaptOptions, type ManufacturingConfig, type ReferenceMode } from '@/app/types'
 
 interface RequestBody {
   prompt?: string
   materials?: MaterialSpec | null
   aspectRatio?: AspectRatio | null
+  manufacturing?: ManufacturingConfig | null
   reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
   background?: { description: string; image: ImageRef | null } | null
 }
@@ -24,7 +25,7 @@ function adaptToText(adapt: AdaptOptions): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, materials, aspectRatio, reference, background } = (await req.json()) as RequestBody
+    const { prompt, materials, aspectRatio, manufacturing, reference, background } = (await req.json()) as RequestBody
 
     if (!prompt) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
@@ -70,6 +71,9 @@ export async function POST(req: NextRequest) {
     if (!hasBgImage && background?.description?.trim()) {
       instruction += `\nBackground / scene: ${background.description.trim()}.`
     }
+
+    const mfg = manufacturingInstruction(manufacturing)
+    if (mfg) instruction += `\n${mfg}`
 
     if (aspectRatio) {
       instruction += `\n${aspectInstruction(aspectRatio)}`

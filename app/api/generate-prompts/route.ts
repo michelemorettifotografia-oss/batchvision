@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
-import type { ImageRef, AdaptOptions, ReferenceMode } from '@/app/types'
+import { manufacturingInstruction, type ImageRef, type AdaptOptions, type ManufacturingConfig, type ReferenceMode } from '@/app/types'
 
 function buildSystemPrompt(styleCount: number, promptsPerStyle: number): string {
   const total = styleCount * promptsPerStyle
@@ -14,6 +14,8 @@ CRITICAL RULES — staying on subject:
 - If the user provides an "Avoid" / constraints list, never include those elements.
 - If a reference product photo is attached, treat it as the ground truth for the product's shape, proportions and identity. Extract its real materials and color cues; do not invent a different product.
 - If the user specifies a background/scene, place the product in that environment consistently across the prompts.
+- If the user provides a list of design styles, use those exact styles first (one per style block, in order). If more styles are needed to reach the count, add complementary ones.
+- If the user provides manufacturing processes or constraints, every style's geometry and materials MUST be realistically producible with them. Prefer simple, low-tooling-cost construction; avoid forms that need expensive custom molds or complex multi-axis machining when asked to.
 
 Each prompt must be in English and include:
 - The machine subject integrating the chosen style (named explicitly so the image model cannot drift)
@@ -48,6 +50,8 @@ interface RequestBody {
   constraints?: string
   styleCount?: number
   promptsPerStyle?: number
+  designStyles?: string[]
+  manufacturing?: ManufacturingConfig
   reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
   background?: { description: string; image: ImageRef | null } | null
 }
@@ -55,7 +59,7 @@ interface RequestBody {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RequestBody
-    const { machine, brief, setting, constraints, reference, background } = body
+    const { machine, brief, setting, constraints, designStyles, manufacturing, reference, background } = body
     const styleCount = Math.min(Math.max(body.styleCount ?? 5, 1), 8)
     const promptsPerStyle = Math.min(Math.max(body.promptsPerStyle ?? 8, 1), 12)
 
@@ -80,6 +84,13 @@ export async function POST(req: NextRequest) {
     }
     if (background?.description?.trim()) {
       userPrompt += `\nBackground / scene for every shot: ${background.description.trim()}`
+    }
+    if (designStyles && designStyles.length) {
+      userPrompt += `\nUse these design styles first (one per style block, in order): ${designStyles.join('; ')}.`
+    }
+    const mfg = manufacturingInstruction(manufacturing)
+    if (mfg) {
+      userPrompt += `\nManufacturing feasibility: ${mfg}`
     }
     if (reference?.image?.data) {
       if (reference.mode === 'exact') {
