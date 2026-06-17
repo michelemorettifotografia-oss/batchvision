@@ -2,16 +2,29 @@
 
 import { useState } from 'react'
 import ImageCard from './ImageCard'
-import { isLoaded, materialsToLabel, type StyleData } from '@/app/types'
+import { isLoaded, materialsToLabel, type AspectRatio, type StyleData } from '@/app/types'
 
 interface StyleSectionProps {
   style: StyleData
   styleIndex: number
+  aspectRatio: AspectRatio
   onRegenerate: (styleIndex: number, promptIndex: number) => void
+  onOpen: (styleIndex: number, promptIndex: number) => void
+  onToggleSelect: (styleIndex: number, promptIndex: number) => void
+  selected: Record<string, boolean>
   busy?: boolean
 }
 
-export default function StyleSection({ style, styleIndex, onRegenerate, busy }: StyleSectionProps) {
+export default function StyleSection({
+  style,
+  styleIndex,
+  aspectRatio,
+  onRegenerate,
+  onOpen,
+  onToggleSelect,
+  selected,
+  busy,
+}: StyleSectionProps) {
   const [collapsed, setCollapsed] = useState(false)
 
   const loadedCount = style.images.filter(isLoaded).length
@@ -54,8 +67,12 @@ export default function StyleSection({ style, styleIndex, onRegenerate, busy }: 
                 prompt={prompt}
                 image={style.images[pi]}
                 index={pi}
+                aspectRatio={aspectRatio}
                 filename={`style${styleIndex + 1}_${safeName}_${pi + 1}`}
+                selected={!!selected[`${styleIndex}-${pi}`]}
                 onRegenerate={() => onRegenerate(styleIndex, pi)}
+                onOpen={() => onOpen(styleIndex, pi)}
+                onToggleSelect={() => onToggleSelect(styleIndex, pi)}
                 disabled={busy}
               />
             ))}

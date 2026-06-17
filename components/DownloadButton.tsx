@@ -5,6 +5,7 @@ import { isLoaded, materialsToLabel, type StyleData } from '@/app/types'
 
 interface DownloadButtonProps {
   styles: StyleData[]
+  selected: Record<string, boolean>
 }
 
 function buildPromptsText(styles: StyleData[]): string {
@@ -25,42 +26,43 @@ function buildPromptsText(styles: StyleData[]): string {
   return lines.join('\n')
 }
 
-export default function DownloadButton({ styles }: DownloadButtonProps) {
-  const [isDownloading, setIsDownloading] = useState(false)
+export default function DownloadButton({ styles, selected }: DownloadButtonProps) {
+  const [busy, setBusy] = useState<'all' | 'selected' | null>(null)
 
-  const successfulImages = styles.flatMap((style, si) =>
-    style.images
-      .map((img, pi) =>
-        isLoaded(img)
-          ? {
-              imageBase64: img.imageBase64,
-              mimeType: img.mimeType,
-              folder: `style${si + 1}_${style.name.replace(/\s+/g, '_')}`,
-              filename: `image_${pi + 1}`,
-            }
-          : null
-      )
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-  )
+  const collect = (onlySelected: boolean) =>
+    styles.flatMap((style, si) =>
+      style.images
+        .map((img, pi) =>
+          isLoaded(img) && (!onlySelected || selected[`${si}-${pi}`])
+            ? {
+                imageBase64: img.imageBase64,
+                mimeType: img.mimeType,
+                folder: `style${si + 1}_${style.name.replace(/\s+/g, '_')}`,
+                filename: `image_${pi + 1}`,
+              }
+            : null
+        )
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+    )
 
-  const handleDownloadZip = async () => {
-    setIsDownloading(true)
+  const allCount = collect(false).length
+  const selectedCount = collect(true).length
+
+  const downloadZip = async (onlySelected: boolean) => {
+    setBusy(onlySelected ? 'selected' : 'all')
     try {
       const JSZip = (await import('jszip')).default
       const zip = new JSZip()
-
       zip.file('prompts.txt', buildPromptsText(styles))
-
-      successfulImages.forEach(({ imageBase64, mimeType, folder, filename }) => {
+      collect(onlySelected).forEach(({ imageBase64, mimeType, folder, filename }) => {
         const ext = mimeType.split('/')[1] || 'png'
         zip.folder(folder)!.file(`${filename}.${ext}`, imageBase64, { base64: true })
       })
-
       const blob = await zip.generateAsync({ type: 'blob' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'batchvision-export.zip'
+      a.download = onlySelected ? 'batchvision-selected.zip' : 'batchvision-export.zip'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -68,13 +70,12 @@ export default function DownloadButton({ styles }: DownloadButtonProps) {
     } catch (err) {
       console.error('ZIP download failed:', err)
     } finally {
-      setIsDownloading(false)
+      setBusy(null)
     }
   }
 
   const handleSavePrompts = () => {
-    const text = buildPromptsText(styles)
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const blob = new Blob([buildPromptsText(styles)], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -88,11 +89,11 @@ export default function DownloadButton({ styles }: DownloadButtonProps) {
   return (
     <div className="flex flex-wrap gap-3 justify-center">
       <button
-        onClick={handleDownloadZip}
-        disabled={isDownloading || successfulImages.length === 0}
+        onClick={() => downloadZip(false)}
+        disabled={busy !== null || allCount === 0}
         className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center gap-2"
       >
-        {isDownloading ? (
+        {busy === 'all' ? (
           <>
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
             Preparing ZIP...
@@ -102,14 +103,36 @@ export default function DownloadButton({ styles }: DownloadButtonProps) {
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
-            Download {successfulImages.length} Images (ZIP)
+            Download All ({allCount})
           </>
         )}
       </button>
 
+      {selectedCount > 0 && (
+        <button
+          onClick={() => downloadZip(true)}
+          disabled={busy !== null}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center gap-2"
+        >
+          {busy === 'selected' ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              Preparing ZIP...
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Download Selected ({selectedCount})
+            </>
+          )}
+        </button>
+      )}
+
       <button
         onClick={handleSavePrompts}
-        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center gap-2"
+        className="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center gap-2"
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

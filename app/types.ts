@@ -48,6 +48,30 @@ export interface BackgroundConfig {
   image: ImageRef | null    // custom background image
 }
 
+export type AspectRatio = '1:1' | '4:3' | '16:9'
+
+export const ASPECT_RATIOS: { value: AspectRatio; label: string; hint: string }[] = [
+  { value: '1:1', label: 'Square 1:1', hint: 'catalog / social' },
+  { value: '4:3', label: 'Standard 4:3', hint: 'classic product' },
+  { value: '16:9', label: 'Wide 16:9', hint: 'hero / web banner' },
+]
+
+// Literal class strings so Tailwind's JIT scanner picks them up.
+export function aspectClass(r: AspectRatio): string {
+  if (r === '4:3') return 'aspect-[4/3]'
+  if (r === '16:9') return 'aspect-[16/9]'
+  return 'aspect-square'
+}
+
+export function aspectInstruction(r: AspectRatio): string {
+  const map: Record<AspectRatio, string> = {
+    '1:1': 'a square 1:1',
+    '4:3': 'a 4:3',
+    '16:9': 'a wide 16:9 cinematic',
+  }
+  return `Compose the shot as ${map[r]} aspect ratio image, framed for that ratio.`
+}
+
 export interface BriefData {
   machine: string
   brief: string
@@ -55,6 +79,7 @@ export interface BriefData {
   constraints: string
   styleCount: number
   promptsPerStyle: number
+  aspectRatio: AspectRatio
   reference: ReferenceConfig
   background: BackgroundConfig
 }
