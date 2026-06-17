@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
 
 const SYSTEM_PROMPT = `You are an expert AI Prompt Engineer and world-class Product Design assistant.
 Generate exactly 5 distinct design styles for the given machine, then 8 unique image generation prompts per style (40 total).
 
+CRITICAL RULES — staying on subject:
+- EVERY prompt must depict the SAME machine/product specified by the user. The product is always the clear hero of the shot.
+- Never drift to unrelated objects, people, animals, abstract scenes, logos, text overlays or props that distract from the product.
+- Keep the product's core function, form factor and proportions recognizable across all 40 prompts. Only the style, materials, finish, setting, angle and lighting change.
+- If the user provides an "Avoid" / constraints list, never include those elements.
+- If a reference product photo is attached, treat it as the ground truth for the product's shape, proportions and identity. Extract its real materials and color cues; do not invent a different product.
+
 Each prompt must be in English and include:
-- The machine subject integrating the chosen style
+- The machine subject integrating the chosen style (named explicitly so the image model cannot drift)
 - Materials, colors, textures, finishes (e.g. brushed aluminum, matte terracotta ceramic, carbon fiber)
 - The user's setting and orientation, adapted photorealistically
 - Lighting and photographic style (studio lighting, cinematic shot, soft shadows, 8k resolution, product photography)
@@ -17,14 +24,26 @@ Return ONLY valid JSON in this exact format:
     {
       "name": "Style Name",
       "description": "Brief mood description and why chosen for this machine",
+      "materials": "Comma-separated list of the key materials, finishes and colors that define this style (e.g. brushed aluminum, matte terracotta ceramic, warm oak, soft white)",
       "prompts": ["prompt1", "prompt2", "prompt3", "prompt4", "prompt5", "prompt6", "prompt7", "prompt8"]
     }
   ]
 }`
 
+interface ReferenceImage {
+  data: string
+  mimeType: string
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { machine, brief, setting } = await req.json()
+    const { machine, brief, setting, constraints, referenceImage } = await req.json() as {
+      machine?: string
+      brief?: string
+      setting?: string
+      constraints?: string
+      referenceImage?: ReferenceImage | null
+    }
 
     if (!machine || !brief || !setting) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -41,9 +60,19 @@ export async function POST(req: NextRequest) {
       systemInstruction: SYSTEM_PROMPT,
     })
 
-    const userPrompt = `Machine: ${machine}\nBrief/Focus: ${brief}\nSetting & Orientation: ${setting}`
+    let userPrompt = `Machine: ${machine}\nBrief/Focus: ${brief}\nSetting & Orientation: ${setting}`
+    if (constraints && constraints.trim()) {
+      userPrompt += `\nAvoid / must NOT appear: ${constraints.trim()}`
+    }
 
-    const result = await model.generateContent(userPrompt)
+    const parts: Part[] = []
+    if (referenceImage?.data) {
+      parts.push({ inlineData: { data: referenceImage.data, mimeType: referenceImage.mimeType } })
+      userPrompt += `\n\nA reference product photo is attached. Extract the actual product's form factor, proportions, materials and color palette from it. Every prompt MUST depict THIS SAME product, only restyled — do not invent unrelated objects.`
+    }
+    parts.push({ text: userPrompt })
+
+    const result = await model.generateContent(parts)
     const text = result.response.text()
 
     // Extract JSON from response (handle markdown code blocks)
