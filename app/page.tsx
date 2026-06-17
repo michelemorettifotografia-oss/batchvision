@@ -12,6 +12,20 @@ export interface StyleData {
   images: Array<{ imageBase64: string; mimeType: string } | null>
 }
 
+// Reads a response body as JSON, but tolerates non-JSON bodies such as the
+// plain-text error pages Vercel returns when a serverless function times out
+// or crashes (e.g. "An error occurred with your deployment / FUNCTION_INVOCATION_TIMEOUT").
+// Without this, res.json() throws an opaque "Unexpected token ... is not valid JSON".
+async function readJsonSafe(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    const snippet = text.trim().split('\n').map((l) => l.trim()).filter(Boolean).join(' — ').slice(0, 200)
+    return { error: snippet || `Request failed (${res.status} ${res.statusText})` }
+  }
+}
+
 export default function Home() {
   const [styles, setStyles] = useState<StyleData[]>([])
   const [status, setStatus] = useState<string>('')
@@ -34,12 +48,16 @@ export default function Home() {
       })
 
       if (!promptsRes.ok) {
-        const errData = await promptsRes.json()
-        throw new Error(errData.error || 'Failed to generate prompts')
+        const errData = await readJsonSafe(promptsRes)
+        throw new Error((errData.error as string) || `Failed to generate prompts (${promptsRes.status})`)
       }
 
-      const promptsData = await promptsRes.json()
-      const generatedStyles: StyleData[] = promptsData.styles.map((s: { name: string; description: string; prompts: string[] }) => ({
+      const promptsData = await readJsonSafe(promptsRes)
+      const rawStyles = promptsData.styles as Array<{ name: string; description: string; prompts: string[] }> | undefined
+      if (!Array.isArray(rawStyles)) {
+        throw new Error((promptsData.error as string) || 'Invalid response from prompt generation')
+      }
+      const generatedStyles: StyleData[] = rawStyles.map((s: { name: string; description: string; prompts: string[] }) => ({
         ...s,
         images: new Array(s.prompts.length).fill(null),
       }))
@@ -66,7 +84,7 @@ export default function Home() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt }),
             })
-            const data = await res.json()
+            const data = await readJsonSafe(res)
             return { styleIndex, promptIndex, data }
           })
         )
@@ -74,7 +92,10 @@ export default function Home() {
         batchResults.forEach((result) => {
           if (result.status === 'fulfilled') {
             const { styleIndex, promptIndex, data } = result.value
-            generatedStyles[styleIndex].images[promptIndex] = data.error ? null : data
+            generatedStyles[styleIndex].images[promptIndex] =
+              data.error || !data.imageBase64
+                ? null
+                : { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
           }
           completed++
         })
