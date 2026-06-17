@@ -5,11 +5,16 @@ import PromptForm from '@/components/PromptForm'
 import StyleSection from '@/components/StyleSection'
 import DownloadButton from '@/components/DownloadButton'
 
+export type ImageSlot =
+  | { imageBase64: string; mimeType: string }
+  | { error: string }
+  | null
+
 export interface StyleData {
   name: string
   description: string
   prompts: string[]
-  images: Array<{ imageBase64: string; mimeType: string } | null>
+  images: ImageSlot[]
 }
 
 // Reads a response body as JSON, but tolerates non-JSON bodies such as the
@@ -89,13 +94,24 @@ export default function Home() {
           })
         )
 
-        batchResults.forEach((result) => {
+        batchResults.forEach((result, ri) => {
+          const { styleIndex, promptIndex } = batch[ri]
           if (result.status === 'fulfilled') {
-            const { styleIndex, promptIndex, data } = result.value
-            generatedStyles[styleIndex].images[promptIndex] =
-              data.error || !data.imageBase64
-                ? null
-                : { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
+            const { data } = result.value
+            if (data.imageBase64 && !data.error) {
+              generatedStyles[styleIndex].images[promptIndex] = {
+                imageBase64: data.imageBase64 as string,
+                mimeType: data.mimeType as string,
+              }
+            } else {
+              generatedStyles[styleIndex].images[promptIndex] = {
+                error: (data.error as string) || 'No image returned',
+              }
+            }
+          } else {
+            generatedStyles[styleIndex].images[promptIndex] = {
+              error: result.reason instanceof Error ? result.reason.message : 'Request failed',
+            }
           }
           completed++
         })
@@ -114,7 +130,11 @@ export default function Home() {
 
   const allImages = styles.flatMap((style, si) =>
     style.images
-      .map((img, pi) => img ? { ...img, filename: `style${si + 1}_${style.name.replace(/\s+/g, '_')}_${pi + 1}` } : null)
+      .map((img, pi) =>
+        img && 'imageBase64' in img
+          ? { imageBase64: img.imageBase64, mimeType: img.mimeType, filename: `style${si + 1}_${style.name.replace(/\s+/g, '_')}_${pi + 1}` }
+          : null
+      )
       .filter((x): x is { imageBase64: string; mimeType: string; filename: string } => x !== null)
   )
 

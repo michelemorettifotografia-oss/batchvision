@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import ImageCard from './ImageCard'
-import { StyleData } from '@/app/page'
+import { StyleData, ImageSlot } from '@/app/page'
 
 interface StyleSectionProps {
   style: StyleData
@@ -12,7 +12,9 @@ interface StyleSectionProps {
 export default function StyleSection({ style, styleIndex }: StyleSectionProps) {
   const [collapsed, setCollapsed] = useState(false)
 
-  const loadedCount = style.images.filter(Boolean).length
+  const loadedCount = style.images.filter((img): img is ImageSlot & { imageBase64: string } =>
+    img !== null && 'imageBase64' in img
+  ).length
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
