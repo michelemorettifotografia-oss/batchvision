@@ -1,14 +1,19 @@
 'use client'
 
 import { useState } from 'react'
+import TagSelector from './TagSelector'
 import {
   ASPECT_RATIOS,
   BACKGROUND_PRESETS,
   DEFAULT_ADAPT,
+  DEFAULT_MANUFACTURING,
+  DESIGN_STYLE_PRESETS,
+  MANUFACTURING_PROCESSES,
   type AdaptOptions,
   type AspectRatio,
   type BriefData,
   type ImageRef,
+  type ManufacturingConfig,
   type ReferenceMode,
 } from '@/app/types'
 
@@ -42,6 +47,8 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [styleCount, setStyleCount] = useState(5)
   const [promptsPerStyle, setPromptsPerStyle] = useState(8)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1')
+  const [designStyles, setDesignStyles] = useState<string[]>([])
+  const [manufacturing, setManufacturing] = useState<ManufacturingConfig>(DEFAULT_MANUFACTURING)
 
   const [referenceImage, setReferenceImage] = useState<UploadedImage | null>(null)
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>('exact')
@@ -88,9 +95,11 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
       brief: brief.trim(),
       setting: setting.trim(),
       constraints: constraints.trim(),
-      styleCount,
+      styleCount: Math.max(styleCount, designStyles.length),
       promptsPerStyle,
       aspectRatio,
+      designStyles,
+      manufacturing,
       reference: {
         image: referenceImage ? { data: referenceImage.data, mimeType: referenceImage.mimeType } : null,
         mode: referenceMode,
@@ -189,6 +198,55 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
             ))}
           </div>
         </div>
+      </section>
+
+      {/* ---- Design styles ---- */}
+      <section className="space-y-3 border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-semibold text-gray-200">Design Styles <span className="text-gray-500 font-normal">(optional)</span></h3>
+        <p className="text-gray-500 text-xs">
+          Pick the styles to explore, or add your own. Selected styles are used first; the rest are filled by AI up to the style count
+          {designStyles.length > 0 ? ` (${designStyles.length} selected)` : ''}.
+        </p>
+        <TagSelector
+          presets={DESIGN_STYLE_PRESETS}
+          value={designStyles}
+          onChange={setDesignStyles}
+          placeholder="Add a custom style (e.g. Scandinavian farmhouse)"
+          disabled={isWorking}
+        />
+      </section>
+
+      {/* ---- Manufacturing feasibility ---- */}
+      <section className="space-y-3 border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-semibold text-gray-200">Manufacturing &amp; Materials Tech <span className="text-gray-500 font-normal">(optional)</span></h3>
+        <p className="text-gray-500 text-xs">
+          Keep designs producible. Pick the processes you can use so the AI favors feasible geometries and materials instead of costly tooling.
+        </p>
+        <TagSelector
+          presets={MANUFACTURING_PROCESSES}
+          value={manufacturing.processes}
+          onChange={(processes) => setManufacturing((m) => ({ ...m, processes }))}
+          placeholder="Add a process (e.g. roto-molding)"
+          disabled={isWorking}
+        />
+        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={manufacturing.avoidExpensiveTooling}
+            onChange={(e) => setManufacturing((m) => ({ ...m, avoidExpensiveTooling: e.target.checked }))}
+            disabled={isWorking}
+            className="accent-blue-500"
+          />
+          Avoid expensive tooling (large injection molds, complex multi-axis machining)
+        </label>
+        <input
+          type="text"
+          value={manufacturing.notes}
+          onChange={(e) => setManufacturing((m) => ({ ...m, notes: e.target.value }))}
+          placeholder="Manufacturing notes (e.g. max 3 unique molded parts, prefer standard extrusion profiles)"
+          className={`${inputClass} text-sm`}
+          disabled={isWorking}
+        />
       </section>
 
       {/* ---- Reference product ---- */}

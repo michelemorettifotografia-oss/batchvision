@@ -7,8 +7,11 @@ import StyleSection from '@/components/StyleSection'
 import DownloadButton from '@/components/DownloadButton'
 import Lightbox from '@/components/Lightbox'
 import {
+  ADV_SHOTS,
   EMPTY_MATERIALS,
+  isLoaded,
   type BriefData,
+  type ImageRef,
   type ImageSlot,
   type MaterialSpec,
   type StyleData,
@@ -54,35 +57,52 @@ export default function Home() {
   const [status, setStatus] = useState<string>('')
   const [isWorking, setIsWorking] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [progressTotal, setProgressTotal] = useState(0)
   const [error, setError] = useState<string>('')
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [lightbox, setLightbox] = useState<{ si: number; pi: number } | null>(null)
 
-  const totalImages = styles.reduce((sum, s) => sum + s.prompts.length, 0)
   const selectedCount = Object.values(selected).filter(Boolean).length
 
-  // Builds the structured request body for a single image generation.
-  const imageRequestBody = (brief: BriefData | null, prompt: string, materials: MaterialSpec) => ({
-    prompt,
-    materials,
-    aspectRatio: brief?.aspectRatio ?? '1:1',
-    reference: brief?.reference?.image
-      ? { image: brief.reference.image, mode: brief.reference.mode, adapt: brief.reference.adapt }
-      : null,
-    background: brief?.background
-      ? { description: brief.background.description, image: brief.background.image }
-      : null,
-  })
+  const setSlot = (si: number, pi: number, slot: ImageSlot) => {
+    setStyles((prev) => {
+      const next = prev.map((s) => ({ ...s, images: [...s.images] }))
+      next[si].images[pi] = slot
+      return next
+    })
+  }
+
+  // Builds the structured request body for one image of a given style.
+  // Styles with a referenceOverride (e.g. advertising sets) lock onto that
+  // exact product image and let the prompt drive the scene; other styles use
+  // the global brief reference/background.
+  const requestBodyForStyle = (style: StyleData, prompt: string) => {
+    const override = style.referenceOverride
+    return {
+      prompt,
+      materials: style.materials,
+      aspectRatio: briefData?.aspectRatio ?? '1:1',
+      manufacturing: briefData?.manufacturing ?? null,
+      reference: override
+        ? { image: override, mode: 'exact' as const, adapt: { moveNozzles: false, changeButtons: false, modifyLights: false, generateProposals: false, notes: '' } }
+        : briefData?.reference?.image
+          ? { image: briefData.reference.image, mode: briefData.reference.mode, adapt: briefData.reference.adapt }
+          : null,
+      background: override
+        ? null
+        : briefData?.background
+          ? { description: briefData.background.description, image: briefData.background.image }
+          : null,
+    }
+  }
 
   // Generate a single slot's image and return the resulting ImageSlot (no state mutation).
-  const generateSlot = async (si: number, pi: number): Promise<ImageSlot> => {
-    const style = styles[si]
-    if (!style) return { error: 'Missing style' }
+  const generateSlotFrom = async (style: StyleData, pi: number): Promise<ImageSlot> => {
     try {
       const res = await fetch('/api/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(imageRequestBody(briefData, style.prompts[pi], style.materials)),
+        body: JSON.stringify(requestBodyForStyle(style, style.prompts[pi])),
       })
       const data = await readJsonSafe(res)
       return data.imageBase64 && !data.error
@@ -90,6 +110,45 @@ export default function Home() {
         : { error: (data.error as string) || 'No image returned' }
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'Request failed' }
+    }
+  }
+
+  const generateSlot = (si: number, pi: number): Promise<ImageSlot> => {
+    const style = styles[si]
+    if (!style) return Promise.resolve({ error: 'Missing style' })
+    return generateSlotFrom(style, pi)
+  }
+
+  // Core batched generation. Fills the given target slots (reading prompts /
+  // reference from `source`) and writes each result straight into state.
+  const runBatchGeneration = async (
+    source: StyleData[],
+    targets: Array<{ si: number; pi: number }>,
+    label: string
+  ) => {
+    setIsWorking(true)
+    setError('')
+    setProgress(0)
+    setProgressTotal(targets.length)
+    const batchSize = 4
+    let completed = 0
+    try {
+      for (let i = 0; i < targets.length; i += batchSize) {
+        const batch = targets.slice(i, i + batchSize)
+        setStatus(`${label} ${completed + 1}–${Math.min(completed + batchSize, targets.length)} / ${targets.length}`)
+        const results = await Promise.allSettled(batch.map(({ si, pi }) => generateSlotFrom(source[si], pi)))
+        results.forEach((r, k) => {
+          const { si, pi } = batch[k]
+          setSlot(si, pi, r.status === 'fulfilled' ? r.value : { error: r.reason instanceof Error ? r.reason.message : 'Request failed' })
+          completed++
+        })
+        setProgress(completed)
+      }
+      setStatus('Done!')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred')
+    } finally {
+      setIsWorking(false)
     }
   }
 
@@ -155,79 +214,51 @@ export default function Home() {
 
   // Step 2 — generate images from the (possibly edited) prompts
   const handleGenerateImages = async () => {
-    setIsWorking(true)
-    setError('')
-    setProgress(0)
     setPhase('images')
-
     const working = styles.map((s) => ({ ...s, images: new Array(s.prompts.length).fill(null) as ImageSlot[] }))
     setStyles(working)
-
-    const jobs: Array<{ styleIndex: number; promptIndex: number; prompt: string; materials: MaterialSpec }> = []
-    working.forEach((style, si) => {
-      style.prompts.forEach((prompt, pi) => {
-        jobs.push({ styleIndex: si, promptIndex: pi, prompt, materials: style.materials })
-      })
-    })
-
-    const total = jobs.length
-    const batchSize = 4
-    let completed = 0
-
-    try {
-      for (let i = 0; i < jobs.length; i += batchSize) {
-        const batch = jobs.slice(i, i + batchSize)
-        setStatus(`Generating images ${completed + 1}–${Math.min(completed + batchSize, total)} / ${total}`)
-
-        const batchResults = await Promise.allSettled(
-          batch.map(async ({ prompt, materials }) => {
-            const res = await fetch('/api/generate-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(imageRequestBody(briefData, prompt, materials)),
-            })
-            return readJsonSafe(res)
-          })
-        )
-
-        batchResults.forEach((result, ri) => {
-          const { styleIndex, promptIndex } = batch[ri]
-          if (result.status === 'fulfilled') {
-            const data = result.value
-            if (data.imageBase64 && !data.error) {
-              working[styleIndex].images[promptIndex] = {
-                imageBase64: data.imageBase64 as string,
-                mimeType: data.mimeType as string,
-              }
-            } else {
-              working[styleIndex].images[promptIndex] = { error: (data.error as string) || 'No image returned' }
-            }
-          } else {
-            working[styleIndex].images[promptIndex] = {
-              error: result.reason instanceof Error ? result.reason.message : 'Request failed',
-            }
-          }
-          completed++
-        })
-
-        setProgress(completed)
-        setStyles(working.map((s) => ({ ...s, images: [...s.images] })))
-      }
-
-      setStatus('Done!')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-    } finally {
-      setIsWorking(false)
-    }
+    const targets = working.flatMap((style, si) => style.prompts.map((_, pi) => ({ si, pi })))
+    await runBatchGeneration(working, targets, 'Generating images')
   }
 
-  const setSlot = (si: number, pi: number, slot: ImageSlot) => {
-    setStyles((prev) => {
-      const next = prev.map((s) => ({ ...s, images: [...s.images] }))
-      next[si].images[pi] = slot
-      return next
+  // From flagged images, build advertising sets (varied framing & settings) of
+  // the same product, using each selected image as the exact reference.
+  const handleCreateAdv = async () => {
+    const sources: Array<{ image: ImageRef; styleName: string; materials: MaterialSpec; index: number }> = []
+    styles.forEach((style, si) => {
+      style.images.forEach((img, pi) => {
+        if (selected[keyOf(si, pi)] && isLoaded(img)) {
+          sources.push({
+            image: { data: img.imageBase64, mimeType: img.mimeType },
+            styleName: style.name,
+            materials: style.materials,
+            index: sources.length + 1,
+          })
+        }
+      })
     })
+    if (sources.length === 0) return
+
+    const advBlocks: StyleData[] = sources.map((src) => ({
+      name: `ADV — ${src.styleName} #${src.index}`,
+      description: 'Advertising shots · varied framing & settings of the same product',
+      materials: src.materials,
+      prompts: ADV_SHOTS.map((shot) => `Professional advertising photograph of the product. ${shot}.`),
+      images: new Array(ADV_SHOTS.length).fill(null),
+      referenceOverride: src.image,
+      isAdv: true,
+    }))
+
+    const baseLen = styles.length
+    const next = [...styles, ...advBlocks]
+    setStyles(next)
+    setSelected({})
+
+    const targets = advBlocks.flatMap((blk, i) => blk.prompts.map((_, pi) => ({ si: baseLen + i, pi })))
+    await runBatchGeneration(next, targets, 'Creating ADV shots')
+
+    // scroll to the new section
+    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100)
   }
 
   // Regenerate a single image (used from each card / lightbox)
@@ -265,6 +296,7 @@ export default function Home() {
     setStatus('')
     setError('')
     setProgress(0)
+    setProgressTotal(0)
     setSelected({})
     setLightbox(null)
   }
@@ -301,15 +333,15 @@ export default function Home() {
         {(isWorking || (status && phase === 'images')) && !error && (
           <div className="mt-6 text-center">
             <p className="text-blue-400 text-sm font-medium">{status}</p>
-            {phase === 'images' && isWorking && totalImages > 0 && (
+            {phase === 'images' && isWorking && progressTotal > 0 && (
               <div className="mt-3 max-w-md mx-auto">
                 <div className="w-full bg-gray-700 rounded-full h-2">
                   <div
                     className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(progress / totalImages) * 100}%` }}
+                    style={{ width: `${(progress / progressTotal) * 100}%` }}
                   />
                 </div>
-                <p className="text-gray-400 text-xs mt-1">{progress} / {totalImages} images</p>
+                <p className="text-gray-400 text-xs mt-1">{progress} / {progressTotal} images</p>
               </div>
             )}
             {isWorking && (
@@ -331,6 +363,18 @@ export default function Home() {
             {!isWorking && (
               <div className="mt-8 flex flex-wrap justify-center items-center gap-3">
                 <DownloadButton styles={styles} selected={selected} />
+                {selectedCount > 0 && (
+                  <button
+                    onClick={handleCreateAdv}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm flex items-center gap-2"
+                    title={`Generate ${ADV_SHOTS.length} advertising shots per selected design`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Create ADV set ({selectedCount}×{ADV_SHOTS.length})
+                  </button>
+                )}
                 <button
                   onClick={selectedCount > 0 ? clearSelection : selectAll}
                   className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"

@@ -24,7 +24,19 @@ export interface StyleData {
   materials: MaterialSpec
   prompts: string[]
   images: ImageSlot[]
+  // When set (e.g. advertising sets), use this image as an exact product
+  // reference for all generations in this block instead of the global brief.
+  referenceOverride?: ImageRef | null
+  isAdv?: boolean
 }
+
+export const ADV_SHOTS: string[] = [
+  'Hero three-quarter front view on a seamless gradient studio backdrop, soft key light with gentle reflections, premium advertising product photography',
+  'Dramatic low-angle shot with cinematic moody lighting and deep shadows on a dark reflective surface',
+  'Lifestyle wide shot placed in a bright modern interior with natural daylight and shallow depth of field',
+  'Extreme close-up macro detail of a key feature, crisp studio lighting highlighting materials and finish',
+  'Top-down flat-lay composition on a textured surface with minimal styling props, bright even lighting',
+]
 
 export type ReferenceMode = 'exact' | 'adapt'
 
@@ -72,6 +84,12 @@ export function aspectInstruction(r: AspectRatio): string {
   return `Compose the shot as ${map[r]} aspect ratio image, framed for that ratio.`
 }
 
+export interface ManufacturingConfig {
+  processes: string[]            // available / preferred production processes
+  avoidExpensiveTooling: boolean // avoid injection molds, complex multi-axis machining, etc.
+  notes: string
+}
+
 export interface BriefData {
   machine: string
   brief: string
@@ -80,8 +98,68 @@ export interface BriefData {
   styleCount: number
   promptsPerStyle: number
   aspectRatio: AspectRatio
+  designStyles: string[]
+  manufacturing: ManufacturingConfig
   reference: ReferenceConfig
   background: BackgroundConfig
+}
+
+export const DEFAULT_MANUFACTURING: ManufacturingConfig = {
+  processes: [],
+  avoidExpensiveTooling: false,
+  notes: '',
+}
+
+// Curated, recognizable product / industrial design styles to pick from.
+export const DESIGN_STYLE_PRESETS: string[] = [
+  'Minimalist Nordic',
+  'Japandi',
+  'Bauhaus',
+  'Mid-Century Modern',
+  'Industrial Utilitarian',
+  'High-Tech',
+  'Brutalist',
+  'Streamline Moderne',
+  'Art Deco',
+  'Memphis',
+  'Organic / Biomorphic',
+  'Monolithic Monochrome',
+  'Retro-Futurism',
+  'Soft Minimalism',
+  'Premium Luxury',
+  'Eco / Sustainable',
+]
+
+// Common material-working technologies, used to keep designs producible.
+export const MANUFACTURING_PROCESSES: string[] = [
+  'CNC machining',
+  'Sheet metal bending',
+  'Aluminum extrusion',
+  'Tube bending',
+  'Die casting',
+  'Injection molding',
+  '3D printing',
+  'Vacuum / thermoforming',
+  'Laser cutting',
+  'Woodworking / CNC routing',
+  'Powder coating',
+  'Anodizing',
+]
+
+// Build a manufacturing-awareness instruction shared by prompt and image generation.
+export function manufacturingInstruction(m?: ManufacturingConfig | null): string {
+  if (!m) return ''
+  const segments: string[] = []
+  if (m.processes.length) {
+    segments.push(`The product must be manufacturable primarily with: ${m.processes.join(', ')}. Favor geometries, parting lines and materials suited to these processes (e.g. bent sheet metal, extruded profiles, off-the-shelf fasteners, simple turned/milled parts).`)
+  }
+  if (m.avoidExpensiveTooling) {
+    segments.push('Avoid designs that require expensive tooling such as large custom injection molds, complex multi-axis machining, or intricate seamless organic shells. Prefer low-tooling-cost, small-batch friendly construction.')
+  }
+  if (m.notes?.trim()) {
+    segments.push(`Manufacturing notes: ${m.notes.trim()}.`)
+  }
+  return segments.join(' ')
 }
 
 export const EMPTY_MATERIALS: MaterialSpec = { primary: '', accent: '', finish: '', palette: '' }
