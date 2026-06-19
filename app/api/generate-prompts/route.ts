@@ -16,6 +16,7 @@ CRITICAL RULES — staying on subject:
 - If the user specifies a background/scene, place the product in that environment consistently across the prompts.
 - If the user provides a list of design styles, use those exact styles first (one per style block, in order). If more styles are needed to reach the count, add complementary ones.
 - If the user provides manufacturing processes or constraints, every style's geometry and materials MUST be realistically producible with them. Prefer simple, low-tooling-cost construction; avoid forms that need expensive custom molds or complex multi-axis machining when asked to.
+- PHYSICAL PLAUSIBILITY: every prompt must describe a real, existing, physically plausible product. Only mention components that genuinely exist and make functional sense for this machine. Never invent impossible mechanisms, redundant or duplicated controls, floating parts, or surreal features. Keep the part/control count realistic. Explicitly describe coherent, functional details so the image model has no room to hallucinate.
 
 Each prompt must be in English and include:
 - The machine subject integrating the chosen style (named explicitly so the image model cannot drift)
