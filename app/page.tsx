@@ -10,6 +10,8 @@ import {
   ADV_SHOTS,
   EMPTY_MATERIALS,
   isLoaded,
+  estimateEur,
+  modelForQuality,
   type BriefData,
   type ImageRef,
   type ImageSlot,
@@ -80,6 +82,7 @@ export default function Home() {
     const override = style.referenceOverride
     return {
       prompt,
+      model: modelForQuality(briefData?.quality),
       materials: style.materials,
       aspectRatio: briefData?.aspectRatio ?? '1:1',
       manufacturing: briefData?.manufacturing ?? null,
@@ -323,6 +326,7 @@ export default function Home() {
         {phase === 'review' && (
           <PromptReview
             styles={styles}
+            costEur={estimateEur(styles.reduce((n, s) => n + s.prompts.length, 0), briefData?.quality)}
             onPromptChange={handlePromptChange}
             onMaterialsChange={handleMaterialsChange}
             onGenerate={handleGenerateImages}
@@ -372,7 +376,7 @@ export default function Home() {
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
-                    Create ADV set ({selectedCount}×{ADV_SHOTS.length})
+                    Create ADV set ({selectedCount}×{ADV_SHOTS.length} ≈ €{estimateEur(selectedCount * ADV_SHOTS.length, briefData?.quality)})
                   </button>
                 )}
                 <button

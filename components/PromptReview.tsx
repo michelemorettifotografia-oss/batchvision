@@ -5,6 +5,7 @@ import type { MaterialSpec, StyleData } from '@/app/types'
 
 interface PromptReviewProps {
   styles: StyleData[]
+  costEur: string
   onPromptChange: (styleIndex: number, promptIndex: number, value: string) => void
   onMaterialsChange: (styleIndex: number, field: keyof MaterialSpec, value: string) => void
   onGenerate: () => void
@@ -20,7 +21,7 @@ const MATERIAL_FIELDS: { key: keyof MaterialSpec; label: string; placeholder: st
   { key: 'palette', label: 'Color palette', placeholder: 'e.g. warm neutrals, sand & charcoal' },
 ]
 
-export default function PromptReview({ styles, onPromptChange, onMaterialsChange, onGenerate, onBack }: PromptReviewProps) {
+export default function PromptReview({ styles, costEur, onPromptChange, onMaterialsChange, onGenerate, onBack }: PromptReviewProps) {
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({})
   const totalPrompts = styles.reduce((sum, s) => sum + s.prompts.length, 0)
 
@@ -130,7 +131,7 @@ export default function PromptReview({ styles, onPromptChange, onMaterialsChange
             onClick={onGenerate}
             className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors flex items-center gap-2"
           >
-            Generate {totalPrompts} Images →
+            Generate {totalPrompts} Images → (≈ €{costEur})
           </button>
         </div>
       </div>
