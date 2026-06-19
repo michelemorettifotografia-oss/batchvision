@@ -12,6 +12,16 @@ interface RequestBody {
   background?: { description: string; image: ImageRef | null } | null
 }
 
+// Always-on realism guardrails to reduce hallucinated / impossible details
+// that create unusable rejects. Text tokens are negligible, so this does not
+// add cost or generation time.
+const REALISM_GUARDRAILS =
+  'Render a real, existing, physically plausible product with photorealistic, coherent and functional details. ' +
+  'Do NOT invent impossible mechanisms, floating or disconnected parts, duplicated or extra controls/buttons, ' +
+  'nonsensical components, warped or fake text and logos, extra nozzles/handles/ports, or surreal elements. ' +
+  'Keep the number of parts, ports and controls realistic, symmetric where expected, and manufacturable. ' +
+  'If unsure about a detail, prefer a simple, clean, believable solution over an invented one.'
+
 function adaptToText(adapt: AdaptOptions): string {
   const allowed: string[] = []
   if (adapt.moveNozzles) allowed.push('reposition the nozzles/spouts')
@@ -82,11 +92,16 @@ export async function POST(req: NextRequest) {
       instruction += `\n${aspectInstruction(aspectRatio)}`
     }
 
+    instruction += `\n${REALISM_GUARDRAILS}`
+
     parts.push({ text: instruction })
 
     const result = await model.generateContent({
       contents: [{ role: 'user', parts }],
       generationConfig: {
+        // Slightly below the default to curb wild hallucinations while keeping
+        // enough variety for distinct styles and variants.
+        temperature: 0.6,
         // @ts-expect-error responseModalities is valid for image generation
         responseModalities: ['IMAGE', 'TEXT'],
       },
