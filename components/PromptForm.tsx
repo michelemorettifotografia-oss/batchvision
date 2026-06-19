@@ -9,11 +9,14 @@ import {
   DEFAULT_MANUFACTURING,
   DESIGN_STYLE_PRESETS,
   MANUFACTURING_PROCESSES,
+  QUALITY_TIERS,
+  estimateEur,
   type AdaptOptions,
   type AspectRatio,
   type BriefData,
   type ImageRef,
   type ManufacturingConfig,
+  type QualityTier,
   type ReferenceMode,
 } from '@/app/types'
 
@@ -44,9 +47,10 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [brief, setBrief] = useState('')
   const [setting, setSetting] = useState('')
   const [constraints, setConstraints] = useState('')
-  const [styleCount, setStyleCount] = useState(5)
-  const [promptsPerStyle, setPromptsPerStyle] = useState(8)
+  const [styleCount, setStyleCount] = useState(3)
+  const [promptsPerStyle, setPromptsPerStyle] = useState(4)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1')
+  const [quality, setQuality] = useState<QualityTier>('economy')
   const [designStyles, setDesignStyles] = useState<string[]>([])
   const [manufacturing, setManufacturing] = useState<ManufacturingConfig>(DEFAULT_MANUFACTURING)
 
@@ -98,6 +102,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
       styleCount: Math.max(styleCount, designStyles.length),
       promptsPerStyle,
       aspectRatio,
+      quality,
       designStyles,
       manufacturing,
       reference: {
@@ -180,7 +185,28 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
             <input type="range" min={1} max={12} value={promptsPerStyle} onChange={(e) => setPromptsPerStyle(Number(e.target.value))} disabled={isWorking} className="w-full accent-blue-500" />
           </div>
         </div>
-        <p className="text-gray-500 text-xs">{styleCount * promptsPerStyle} images will be generated in total.</p>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Quality / cost per image</label>
+          <div className="grid grid-cols-3 gap-2">
+            {QUALITY_TIERS.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setQuality(t.value)}
+                disabled={isWorking}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${quality === t.value ? 'border-blue-500 bg-blue-600/20' : 'border-gray-600 bg-gray-700 hover:border-gray-500'}`}
+              >
+                <span className="block text-sm font-medium text-white">{t.label}</span>
+                <span className="block text-xs text-gray-400">~€{(t.usdPerImage * 0.92).toFixed(3)}/img</span>
+                <span className="block text-[11px] text-gray-500">{t.note}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="bg-gray-750 border border-gray-700 rounded-lg px-4 py-2.5 flex items-center justify-between">
+          <span className="text-sm text-gray-300">{styleCount * promptsPerStyle} images total</span>
+          <span className="text-sm font-semibold text-green-400">≈ €{estimateEur(styleCount * promptsPerStyle, quality)}</span>
+        </div>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-1">Aspect ratio</label>
           <div className="grid grid-cols-3 gap-2">
@@ -390,9 +416,12 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
             Working...
           </>
         ) : (
-          'Generate Prompts →'
+          `Generate Prompts →  (then ≈ €${estimateEur(styleCount * promptsPerStyle, quality)} to render)`
         )}
       </button>
+      <p className="text-gray-500 text-xs text-center -mt-4">
+        Prompt generation is nearly free; you only pay when you render images. Tip: keep counts low, preview, then expand.
+      </p>
     </form>
   )
 }

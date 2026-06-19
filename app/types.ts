@@ -61,7 +61,6 @@ export interface BackgroundConfig {
 }
 
 export type AspectRatio = '1:1' | '4:3' | '16:9'
-
 export const ASPECT_RATIOS: { value: AspectRatio; label: string; hint: string }[] = [
   { value: '1:1', label: 'Square 1:1', hint: 'catalog / social' },
   { value: '4:3', label: 'Standard 4:3', hint: 'classic product' },
@@ -90,6 +89,34 @@ export interface ManufacturingConfig {
   notes: string
 }
 
+// Image model quality/cost tiers. usdPerImage is the approximate cost for a
+// standard 1024px image (synchronous API). Source: Google Gemini API pricing.
+export type QualityTier = 'economy' | 'standard' | 'pro'
+
+export const QUALITY_TIERS: { value: QualityTier; label: string; model: string; usdPerImage: number; note: string }[] = [
+  { value: 'economy', label: 'Economy', model: 'gemini-2.5-flash-image', usdPerImage: 0.039, note: 'Nano Banana · best value' },
+  { value: 'standard', label: 'Standard', model: 'gemini-3.1-flash-image', usdPerImage: 0.06, note: 'Nano Banana 2 · sharper' },
+  { value: 'pro', label: 'Pro', model: 'gemini-3-pro-image', usdPerImage: 0.134, note: 'Nano Banana Pro · top quality' },
+]
+
+export const ALLOWED_IMAGE_MODELS = QUALITY_TIERS.map((t) => t.model)
+export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
+
+export const USD_TO_EUR = 0.92
+
+export function tierFor(q?: QualityTier | null) {
+  return QUALITY_TIERS.find((t) => t.value === q) ?? QUALITY_TIERS[0]
+}
+
+export function modelForQuality(q?: QualityTier | null): string {
+  return tierFor(q).model
+}
+
+// Estimated EUR cost string for a number of images at a given tier.
+export function estimateEur(images: number, q?: QualityTier | null): string {
+  return (images * tierFor(q).usdPerImage * USD_TO_EUR).toFixed(2)
+}
+
 export interface BriefData {
   machine: string
   brief: string
@@ -98,6 +125,7 @@ export interface BriefData {
   styleCount: number
   promptsPerStyle: number
   aspectRatio: AspectRatio
+  quality: QualityTier
   designStyles: string[]
   manufacturing: ManufacturingConfig
   reference: ReferenceConfig

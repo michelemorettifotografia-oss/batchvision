@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI, type Part } from '@google/generative-ai'
-import { aspectInstruction, manufacturingInstruction, materialsToText, type AspectRatio, type MaterialSpec, type ImageRef, type AdaptOptions, type ManufacturingConfig, type ReferenceMode } from '@/app/types'
+import { ALLOWED_IMAGE_MODELS, DEFAULT_IMAGE_MODEL, aspectInstruction, manufacturingInstruction, materialsToText, type AspectRatio, type MaterialSpec, type ImageRef, type AdaptOptions, type ManufacturingConfig, type ReferenceMode } from '@/app/types'
 
 interface RequestBody {
   prompt?: string
+  model?: string
   materials?: MaterialSpec | null
   aspectRatio?: AspectRatio | null
   manufacturing?: ManufacturingConfig | null
@@ -25,7 +26,8 @@ function adaptToText(adapt: AdaptOptions): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, materials, aspectRatio, manufacturing, reference, background } = (await req.json()) as RequestBody
+    const body = (await req.json()) as RequestBody
+    const { prompt, materials, aspectRatio, manufacturing, reference, background } = body
 
     if (!prompt) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
@@ -36,8 +38,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'GEMINI_API_KEY not configured' }, { status: 500 })
     }
 
+    const modelName = body.model && ALLOWED_IMAGE_MODELS.includes(body.model) ? body.model : DEFAULT_IMAGE_MODEL
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-image' })
+    const model = genAI.getGenerativeModel({ model: modelName })
 
     const parts: Part[] = []
     let instruction = ''
