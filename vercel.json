@@ -1,6 +1,7 @@
 {
   "functions": {
     "app/api/generate-prompts/route.ts": { "maxDuration": 60 },
-    "app/api/generate-image/route.ts": { "maxDuration": 60 }
+    "app/api/generate-image/route.ts": { "maxDuration": 60 },
+    "app/api/upscale-image/route.ts": { "maxDuration": 60 }
   }
 }

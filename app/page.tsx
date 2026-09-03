@@ -10,9 +10,12 @@ import {
   ADV_SHOTS,
   EMPTY_MATERIALS,
   isLoaded,
+  UPSCALE_SIZES,
   estimateEur,
+  estimateUpscaleEur,
   modelForQuality,
   type BriefData,
+  type UpscaleSize,
   type ImageRef,
   type ImageSlot,
   type MaterialSpec,
@@ -280,6 +283,90 @@ export default function Home() {
     setSlot(si, pi, image)
   }
 
+  // ---- Upscaling (resolution only, content preserved) ----
+
+  // Never destroys the original: returns the new image or an error message,
+  // and the caller only replaces the slot on success.
+  const upscaleRequest = async (
+    img: { imageBase64: string; mimeType: string },
+    size: UpscaleSize
+  ): Promise<{ imageBase64?: string; mimeType?: string; error?: string }> => {
+    try {
+      const res = await fetch('/api/upscale-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: img.imageBase64,
+          mimeType: img.mimeType,
+          size,
+          model: modelForQuality(briefData?.quality),
+          aspectRatio: briefData?.aspectRatio ?? null,
+        }),
+      })
+      const data = await readJsonSafe(res)
+      if (data.imageBase64 && !data.error) {
+        return { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
+      }
+      return { error: (data.error as string) || 'Upscale failed' }
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'Request failed' }
+    }
+  }
+
+  // Single image upscale (from the lightbox). Returns an error string or null.
+  const handleUpscale = async (si: number, pi: number, size: UpscaleSize): Promise<string | null> => {
+    const img = styles[si]?.images[pi]
+    if (!isLoaded(img)) return 'No image to upscale'
+    const r = await upscaleRequest(img, size)
+    if (r.imageBase64 && r.mimeType) {
+      setSlot(si, pi, { imageBase64: r.imageBase64, mimeType: r.mimeType, size })
+      return null
+    }
+    return r.error ?? 'Upscale failed'
+  }
+
+  // Bulk upscale of every flagged image.
+  const handleUpscaleSelected = async (size: UpscaleSize) => {
+    const jobs = styles.flatMap((style, si) =>
+      style.images
+        .map((img, pi) =>
+          selected[keyOf(si, pi)] && isLoaded(img)
+            ? { si, pi, imageBase64: img.imageBase64, mimeType: img.mimeType }
+            : null
+        )
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+    )
+    if (jobs.length === 0) return
+
+    setIsWorking(true)
+    setError('')
+    setProgress(0)
+    setProgressTotal(jobs.length)
+    const failures: string[] = []
+    let completed = 0
+    const batchSize = 2 // upscales are heavier than normal renders
+
+    for (let i = 0; i < jobs.length; i += batchSize) {
+      const batch = jobs.slice(i, i + batchSize)
+      setStatus(`Upscaling to ${size} ${completed + 1}–${Math.min(completed + batchSize, jobs.length)} / ${jobs.length}`)
+      const results = await Promise.allSettled(batch.map((j) => upscaleRequest(j, size)))
+      results.forEach((r, k) => {
+        const j = batch[k]
+        if (r.status === 'fulfilled' && r.value.imageBase64 && r.value.mimeType) {
+          setSlot(j.si, j.pi, { imageBase64: r.value.imageBase64, mimeType: r.value.mimeType, size })
+        } else {
+          failures.push(r.status === 'fulfilled' ? r.value.error ?? 'Upscale failed' : 'Request failed')
+        }
+        completed++
+      })
+      setProgress(completed)
+    }
+
+    setStatus(`Upscaled ${jobs.length - failures.length}/${jobs.length} to ${size}`)
+    if (failures.length) setError(`${failures.length} upscale(s) failed — originals kept. First error: ${failures[0]}`)
+    setIsWorking(false)
+  }
+
   const toggleSelect = (si: number, pi: number) =>
     setSelected((prev) => ({ ...prev, [keyOf(si, pi)]: !prev[keyOf(si, pi)] }))
 
@@ -379,6 +466,19 @@ export default function Home() {
                     Create ADV set ({selectedCount}×{ADV_SHOTS.length} ≈ €{estimateEur(selectedCount * ADV_SHOTS.length, briefData?.quality)})
                   </button>
                 )}
+                {selectedCount > 0 && UPSCALE_SIZES.map((s) => (
+                  <button
+                    key={s.value}
+                    onClick={() => handleUpscaleSelected(s.value)}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm flex items-center gap-2"
+                    title={`Upscale the ${selectedCount} selected image(s) to ${s.value} — same content, higher resolution`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                    </svg>
+                    Upscale {s.value} (≈ €{estimateUpscaleEur(selectedCount, briefData?.quality, s.value)})
+                  </button>
+                ))}
                 <button
                   onClick={selectedCount > 0 ? clearSelection : selectAll}
                   className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
@@ -431,6 +531,7 @@ export default function Home() {
           onToggleSelect={toggleSelect}
           onGenerateVariants={handleGenerateVariants}
           onAdopt={handleAdopt}
+          onUpscale={handleUpscale}
         />
       )}
     </main>

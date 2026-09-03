@@ -7,7 +7,7 @@ export interface ImageRef {
 }
 
 export type ImageSlot =
-  | { imageBase64: string; mimeType: string }
+  | { imageBase64: string; mimeType: string; size?: string }
   | { error: string }
   | null
 
@@ -93,11 +93,29 @@ export interface ManufacturingConfig {
 // standard 1024px image (synchronous API). Source: Google Gemini API pricing.
 export type QualityTier = 'economy' | 'standard' | 'pro'
 
-export const QUALITY_TIERS: { value: QualityTier; label: string; model: string; usdPerImage: number; note: string }[] = [
-  { value: 'economy', label: 'Economy', model: 'gemini-2.5-flash-image', usdPerImage: 0.039, note: 'Nano Banana · best value' },
-  { value: 'standard', label: 'Standard', model: 'gemini-3.1-flash-image', usdPerImage: 0.06, note: 'Nano Banana 2 · sharper' },
-  { value: 'pro', label: 'Pro', model: 'gemini-3-pro-image', usdPerImage: 0.134, note: 'Nano Banana Pro · top quality' },
+// usd2K / usd4K are the cost of one image rendered at that resolution, used
+// for upscale estimates (economy & pro figures from Google pricing; standard
+// is interpolated).
+export const QUALITY_TIERS: { value: QualityTier; label: string; model: string; usdPerImage: number; usd2K: number; usd4K: number; note: string }[] = [
+  { value: 'economy', label: 'Economy', model: 'gemini-2.5-flash-image', usdPerImage: 0.039, usd2K: 0.101, usd4K: 0.151, note: 'Nano Banana · best value' },
+  { value: 'standard', label: 'Standard', model: 'gemini-3.1-flash-image', usdPerImage: 0.06, usd2K: 0.12, usd4K: 0.19, note: 'Nano Banana 2 · sharper' },
+  { value: 'pro', label: 'Pro', model: 'gemini-3-pro-image', usdPerImage: 0.134, usd2K: 0.134, usd4K: 0.24, note: 'Nano Banana Pro · top quality' },
 ]
+
+// Upscale target resolutions. 1K is the default generation size, so upscaling
+// only offers the larger tiers.
+export type UpscaleSize = '2K' | '4K'
+
+export const UPSCALE_SIZES: { value: UpscaleSize; label: string; note: string }[] = [
+  { value: '2K', label: '2K', note: '2048px · recommended' },
+  { value: '4K', label: '4K', note: '4096px · print' },
+]
+
+export function estimateUpscaleEur(images: number, q?: QualityTier | null, size: UpscaleSize = '2K'): string {
+  const tier = tierFor(q)
+  const usd = size === '4K' ? tier.usd4K : tier.usd2K
+  return (images * usd * USD_TO_EUR).toFixed(2)
+}
 
 export const ALLOWED_IMAGE_MODELS = QUALITY_TIERS.map((t) => t.model)
 export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'

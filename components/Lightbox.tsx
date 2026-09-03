@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { isLoaded, type AspectRatio, type ImageSlot, type StyleData } from '@/app/types'
+import { UPSCALE_SIZES, isLoaded, type AspectRatio, type ImageSlot, type StyleData, type UpscaleSize } from '@/app/types'
 
 interface LightboxProps {
   styles: StyleData[]
@@ -14,6 +14,7 @@ interface LightboxProps {
   onToggleSelect: (si: number, pi: number) => void
   onGenerateVariants: (si: number, pi: number, count: number) => Promise<ImageSlot[]>
   onAdopt: (si: number, pi: number, image: { imageBase64: string; mimeType: string }) => void
+  onUpscale: (si: number, pi: number, size: UpscaleSize) => Promise<string | null>
 }
 
 const VARIANT_COUNT = 4
@@ -28,9 +29,12 @@ export default function Lightbox({
   onToggleSelect,
   onGenerateVariants,
   onAdopt,
+  onUpscale,
 }: LightboxProps) {
   const [variants, setVariants] = useState<ImageSlot[] | null>(null)
   const [loadingVariants, setLoadingVariants] = useState(false)
+  const [upscaling, setUpscaling] = useState<UpscaleSize | null>(null)
+  const [upscaleError, setUpscaleError] = useState<string | null>(null)
 
   // Flat ordered list of every slot for prev/next navigation.
   const order: { si: number; pi: number }[] = []
@@ -50,6 +54,8 @@ export default function Lightbox({
   useEffect(() => {
     setVariants(null)
     setLoadingVariants(false)
+    setUpscaling(null)
+    setUpscaleError(null)
   }, [position.si, position.pi])
 
   useEffect(() => {
@@ -75,6 +81,18 @@ export default function Lightbox({
       setVariants(await onGenerateVariants(position.si, position.pi, VARIANT_COUNT))
     } finally {
       setLoadingVariants(false)
+    }
+  }
+
+  const handleUpscale = async (size: UpscaleSize) => {
+    if (upscaling) return
+    setUpscaling(size)
+    setUpscaleError(null)
+    try {
+      const err = await onUpscale(position.si, position.pi, size)
+      if (err) setUpscaleError(err)
+    } finally {
+      setUpscaling(null)
     }
   }
 
@@ -156,7 +174,32 @@ export default function Lightbox({
             )}
             Generate {VARIANT_COUNT} variants
           </button>
+
+          {UPSCALE_SIZES.map((s) => (
+            <button
+              key={s.value}
+              onClick={() => handleUpscale(s.value)}
+              disabled={!isLoaded(image) || upscaling !== null}
+              title={`Increase resolution to ${s.value} — same content, no redesign`}
+              className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors flex items-center gap-2"
+            >
+              {upscaling === s.value ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              )}
+              Upscale {s.value}
+            </button>
+          ))}
         </div>
+
+        {(isLoaded(image) && image.size) || upscaleError ? (
+          <p className={`text-xs text-center ${upscaleError ? 'text-red-400' : 'text-amber-400'}`}>
+            {upscaleError ?? `Upscaled to ${isLoaded(image) ? image.size : ''} · content unchanged`}
+          </p>
+        ) : null}
 
         {/* Variants strip */}
         {(variants || loadingVariants) && (
