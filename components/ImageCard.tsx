@@ -118,6 +118,12 @@ export default function ImageCard({
           {index + 1}
         </div>
       )}
+
+      {isLoaded && image.size && (
+        <div className="absolute bottom-2 left-2 bg-amber-600/90 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+          {image.size}
+        </div>
+      )}
     </div>
   )
 }
