@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import PromptForm from '@/components/PromptForm'
 import PromptReview from '@/components/PromptReview'
+import ReshootForm from '@/components/ReshootForm'
 import StyleSection from '@/components/StyleSection'
 import DownloadButton from '@/components/DownloadButton'
 import Lightbox from '@/components/Lightbox'
@@ -19,12 +20,14 @@ import {
   type ImageRef,
   type ImageSlot,
   type MaterialSpec,
+  type ReshootData,
   type StyleData,
 } from '@/app/types'
 
 const keyOf = (si: number, pi: number) => `${si}-${pi}`
 
 type Phase = 'input' | 'review' | 'images'
+type Mode = 'design' | 'reshoot'
 
 // Reads a response body as JSON, but tolerates non-JSON bodies such as the
 // plain-text error pages Vercel returns when a serverless function times out
@@ -57,6 +60,7 @@ function normalizeMaterials(raw: unknown): MaterialSpec {
 
 export default function Home() {
   const [phase, setPhase] = useState<Phase>('input')
+  const [mode, setMode] = useState<Mode>('design')
   const [briefData, setBriefData] = useState<BriefData | null>(null)
   const [styles, setStyles] = useState<StyleData[]>([])
   const [status, setStatus] = useState<string>('')
@@ -68,6 +72,9 @@ export default function Home() {
   const [lightbox, setLightbox] = useState<{ si: number; pi: number } | null>(null)
 
   const selectedCount = Object.values(selected).filter(Boolean).length
+  // Standalone flows (e.g. Re-shoot) carry their own aspect ratio per block
+  // instead of the global brief, which stays null there.
+  const displayAspectRatio = styles[0]?.aspectRatioOverride ?? briefData?.aspectRatio ?? '1:1'
 
   const setSlot = (si: number, pi: number, slot: ImageSlot) => {
     setStyles((prev) => {
@@ -78,27 +85,34 @@ export default function Home() {
   }
 
   // Builds the structured request body for one image of a given style.
-  // Styles with a referenceOverride (e.g. advertising sets) lock onto that
-  // exact product image and let the prompt drive the scene; other styles use
-  // the global brief reference/background.
+  // Styles with a referenceOverride (e.g. advertising sets, re-shoots) lock
+  // onto that exact product image; a block can also carry its own
+  // background/aspectRatio/model overrides (re-shoots don't rely on the
+  // global design brief at all) — otherwise everything falls back to the
+  // global brief. lockDesign forces "same product, no restyling" downstream.
   const requestBodyForStyle = (style: StyleData, prompt: string) => {
     const override = style.referenceOverride
+    const background =
+      style.backgroundOverride !== undefined
+        ? style.backgroundOverride
+        : override
+          ? null
+          : briefData?.background
+            ? { description: briefData.background.description, image: briefData.background.image }
+            : null
     return {
       prompt,
-      model: modelForQuality(briefData?.quality),
+      model: style.modelOverride ?? modelForQuality(briefData?.quality),
       materials: style.materials,
-      aspectRatio: briefData?.aspectRatio ?? '1:1',
-      manufacturing: briefData?.manufacturing ?? null,
+      aspectRatio: style.aspectRatioOverride ?? briefData?.aspectRatio ?? '1:1',
+      manufacturing: style.lockDesign ? null : briefData?.manufacturing ?? null,
+      lockDesign: style.lockDesign ?? false,
       reference: override
         ? { image: override, mode: 'exact' as const, adapt: { moveNozzles: false, changeButtons: false, modifyLights: false, generateProposals: false, notes: '' } }
         : briefData?.reference?.image
           ? { image: briefData.reference.image, mode: briefData.reference.mode, adapt: briefData.reference.adapt }
           : null,
-      background: override
-        ? null
-        : briefData?.background
-          ? { description: briefData.background.description, image: briefData.background.image }
-          : null,
+      background,
     }
   }
 
@@ -225,6 +239,35 @@ export default function Home() {
     setStyles(working)
     const targets = working.flatMap((style, si) => style.prompts.map((_, pi) => ({ si, pi })))
     await runBatchGeneration(working, targets, 'Generating images')
+  }
+
+  // Re-shoot flow: take existing photos and only change light, framing and
+  // environment. Skips the prompt-review step entirely (there's no design to
+  // review — the product must stay exactly as photographed) and goes
+  // straight to generation with lockDesign on every block.
+  const handleCreateReshoot = async (data: ReshootData) => {
+    if (data.photos.length === 0 || data.shots.length === 0) return
+
+    const blocks: StyleData[] = data.photos.map((photo, idx) => ({
+      name: data.photos.length > 1 ? `Re-shoot — Photo ${idx + 1}` : 'Re-shoot',
+      description: 'Same product, unchanged design — new light, framing & environment only',
+      materials: EMPTY_MATERIALS,
+      prompts: data.shots.map((shot) => `Professional product photograph, same exact product as the reference. ${shot}.`),
+      images: new Array(data.shots.length).fill(null),
+      referenceOverride: photo,
+      backgroundOverride: data.background,
+      aspectRatioOverride: data.aspectRatio,
+      modelOverride: modelForQuality(data.quality),
+      lockDesign: true,
+    }))
+
+    setMode('reshoot')
+    setStyles(blocks)
+    setSelected({})
+    setPhase('images')
+
+    const targets = blocks.flatMap((blk, si) => blk.prompts.map((_, pi) => ({ si, pi })))
+    await runBatchGeneration(blocks, targets, 'Re-shooting photos')
   }
 
   // From flagged images, build advertising sets (varied framing & settings) of
@@ -407,7 +450,29 @@ export default function Home() {
         </div>
 
         {phase === 'input' && (
-          <PromptForm onGeneratePrompts={handleGeneratePrompts} isWorking={isWorking} />
+          <>
+            <div className="flex justify-center gap-2 mb-6">
+              <button
+                type="button"
+                onClick={() => setMode('design')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'design' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'}`}
+              >
+                🎨 New Design Brief
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('reshoot')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === 'reshoot' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'}`}
+              >
+                📷 Re-shoot Existing Photo
+              </button>
+            </div>
+            {mode === 'design' ? (
+              <PromptForm onGeneratePrompts={handleGeneratePrompts} isWorking={isWorking} />
+            ) : (
+              <ReshootForm onGenerate={handleCreateReshoot} isWorking={isWorking} />
+            )}
+          </>
         )}
 
         {phase === 'review' && (
@@ -485,17 +550,19 @@ export default function Home() {
                 >
                   {selectedCount > 0 ? `Clear selection (${selectedCount})` : 'Select all'}
                 </button>
-                <button
-                  onClick={handleBackToReview}
-                  className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
-                >
-                  ← Edit Prompts
-                </button>
+                {mode === 'design' && (
+                  <button
+                    onClick={handleBackToReview}
+                    className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
+                  >
+                    ← Edit Prompts
+                  </button>
+                )}
                 <button
                   onClick={handleReset}
                   className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-3 px-5 rounded-lg transition-colors text-sm"
                 >
-                  New Brief
+                  {mode === 'reshoot' ? 'New Re-shoot' : 'New Brief'}
                 </button>
               </div>
             )}
@@ -506,7 +573,7 @@ export default function Home() {
                   key={index}
                   style={style}
                   styleIndex={index}
-                  aspectRatio={briefData?.aspectRatio ?? '1:1'}
+                  aspectRatio={style.aspectRatioOverride ?? briefData?.aspectRatio ?? '1:1'}
                   onRegenerate={handleRegenerate}
                   onOpen={(si, pi) => setLightbox({ si, pi })}
                   onToggleSelect={toggleSelect}
@@ -523,7 +590,7 @@ export default function Home() {
         <Lightbox
           styles={styles}
           position={lightbox}
-          aspectRatio={briefData?.aspectRatio ?? '1:1'}
+          aspectRatio={displayAspectRatio}
           selected={selected}
           onClose={() => setLightbox(null)}
           onNavigate={setLightbox}

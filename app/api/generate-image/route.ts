@@ -10,7 +10,23 @@ interface RequestBody {
   manufacturing?: ManufacturingConfig | null
   reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
   background?: { description: string; image: ImageRef | null } | null
+  // Photo re-shoot mode: keep the product 100% as-is (materials, colors,
+  // finish, geometry) and only change lighting, framing, environment and
+  // overall photographic quality.
+  lockDesign?: boolean
 }
+
+// Used instead of the normal 'exact' reference instruction when lockDesign is
+// set: stricter, and explicitly forbids restyling of any kind (even the
+// subtle drift the normal exact-reference wording allows for materials/scene).
+const LOCK_DESIGN_INSTRUCTION =
+  'The attached image is the real, existing product. Reproduce it with a 100% IDENTICAL design: same geometry, proportions, ' +
+  'parts, controls, layout, materials, colors, finishes and textures as the reference — do not restyle, redesign, recolor or ' +
+  're-material anything about the product itself, and do not add, remove or move any part, label or control. ' +
+  'Only change what is explicitly requested below: camera framing/angle, lighting, the environment/background, and the ' +
+  'overall photographic quality. Treat this as a professional re-shoot of the exact same object, not a redesign: perfectly ' +
+  'sharp focus on the product, clean refined lighting, accurate colors matching the reference exactly, no motion blur, no ' +
+  'compression artifacts, no added noise. '
 
 // Always-on realism guardrails to reduce hallucinated / impossible details
 // that create unusable rejects. Text tokens are negligible, so this does not
@@ -37,7 +53,7 @@ function adaptToText(adapt: AdaptOptions): string {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RequestBody
-    const { prompt, materials, aspectRatio, manufacturing, reference, background } = body
+    const { prompt, materials, aspectRatio, manufacturing, reference, background, lockDesign } = body
 
     if (!prompt) {
       return NextResponse.json({ error: 'Missing prompt' }, { status: 400 })
@@ -60,7 +76,9 @@ export async function POST(req: NextRequest) {
 
     if (hasReference && reference?.image) {
       parts.push({ inlineData: { data: reference.image.data, mimeType: reference.image.mimeType } })
-      if (reference.mode === 'exact') {
+      if (lockDesign) {
+        instruction += LOCK_DESIGN_INSTRUCTION
+      } else if (reference.mode === 'exact') {
         instruction +=
           'The first attached image is the actual product. Reproduce THIS EXACT product — identical geometry, proportions, parts, controls and layout. Do not change its structure or invent new parts; only apply the restyling, materials and scene described below. '
       } else {
@@ -78,15 +96,22 @@ export async function POST(req: NextRequest) {
 
     instruction += prompt
 
-    const mt = materialsToText(materials)
-    if (mt) instruction += `\n${mt}`
+    // Materials/manufacturing instructions describe a NEW design direction —
+    // skip them entirely under lockDesign so nothing contradicts "keep the
+    // product 100% identical".
+    if (!lockDesign) {
+      const mt = materialsToText(materials)
+      if (mt) instruction += `\n${mt}`
+    }
 
     if (!hasBgImage && background?.description?.trim()) {
       instruction += `\nBackground / scene: ${background.description.trim()}.`
     }
 
-    const mfg = manufacturingInstruction(manufacturing)
-    if (mfg) instruction += `\n${mfg}`
+    if (!lockDesign) {
+      const mfg = manufacturingInstruction(manufacturing)
+      if (mfg) instruction += `\n${mfg}`
+    }
 
     if (aspectRatio) {
       instruction += `\n${aspectInstruction(aspectRatio)}`
@@ -100,8 +125,10 @@ export async function POST(req: NextRequest) {
       contents: [{ role: 'user', parts }],
       generationConfig: {
         // Slightly below the default to curb wild hallucinations while keeping
-        // enough variety for distinct styles and variants.
-        temperature: 0.6,
+        // enough variety for distinct styles and variants. lockDesign drops
+        // this further since fidelity to the reference matters more than
+        // variety there.
+        temperature: lockDesign ? 0.25 : 0.6,
         // @ts-expect-error responseModalities is valid for image generation
         responseModalities: ['IMAGE', 'TEXT'],
       },

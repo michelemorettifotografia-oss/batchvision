@@ -24,19 +24,32 @@ export interface StyleData {
   materials: MaterialSpec
   prompts: string[]
   images: ImageSlot[]
-  // When set (e.g. advertising sets), use this image as an exact product
-  // reference for all generations in this block instead of the global brief.
+  // When set (e.g. advertising sets, re-shoots), use this image as an exact
+  // product reference for all generations in this block instead of the
+  // global brief.
   referenceOverride?: ImageRef | null
   isAdv?: boolean
+  // Per-block overrides used by standalone flows (ADV, Re-shoot) that build
+  // their own generation config instead of relying on the main BriefData.
+  backgroundOverride?: BackgroundConfig | null
+  aspectRatioOverride?: AspectRatio | null
+  modelOverride?: string
+  // When true, the image API must not restyle the product at all: same
+  // materials, colors, finish and geometry — only lighting, framing,
+  // environment and photographic quality may change. Used by Re-shoot.
+  lockDesign?: boolean
 }
 
-export const ADV_SHOTS: string[] = [
-  'Hero three-quarter front view on a seamless gradient studio backdrop, soft key light with gentle reflections, premium advertising product photography',
-  'Dramatic low-angle shot with cinematic moody lighting and deep shadows on a dark reflective surface',
-  'Lifestyle wide shot placed in a bright modern interior with natural daylight and shallow depth of field',
-  'Extreme close-up macro detail of a key feature, crisp studio lighting highlighting materials and finish',
-  'Top-down flat-lay composition on a textured surface with minimal styling props, bright even lighting',
+// Framing & lighting treatments shared by ADV sets and photo re-shoots.
+export const SHOT_PRESETS: { key: string; label: string; instruction: string }[] = [
+  { key: 'hero', label: 'Studio Hero', instruction: 'Hero three-quarter front view on a seamless gradient studio backdrop, soft key light with gentle reflections, premium advertising product photography' },
+  { key: 'dramatic', label: 'Dramatic Mood', instruction: 'Dramatic low-angle shot with cinematic moody lighting and deep shadows on a dark reflective surface' },
+  { key: 'lifestyle', label: 'Lifestyle Bright', instruction: 'Lifestyle wide shot placed in a bright modern interior with natural daylight and shallow depth of field' },
+  { key: 'macro', label: 'Macro Detail', instruction: 'Extreme close-up macro detail of a key feature, crisp studio lighting highlighting real existing materials and finish' },
+  { key: 'topdown', label: 'Top-Down Flat', instruction: 'Top-down flat-lay composition on a textured surface with minimal styling props, bright even lighting' },
 ]
+
+export const ADV_SHOTS: string[] = SHOT_PRESETS.map((s) => s.instruction)
 
 export type ReferenceMode = 'exact' | 'adapt'
 
@@ -135,6 +148,16 @@ export function modelForQuality(q?: QualityTier | null): string {
 // Estimated EUR cost string for a number of images at a given tier.
 export function estimateEur(images: number, q?: QualityTier | null): string {
   return (images * tierFor(q).usdPerImage * USD_TO_EUR).toFixed(2)
+}
+
+// Config for the "Re-shoot" flow: take existing product photos and only
+// change lighting, framing and environment/background — never the design.
+export interface ReshootData {
+  photos: ImageRef[]
+  shots: string[]                    // chosen shot instruction strings (from SHOT_PRESETS)
+  background: BackgroundConfig | null
+  aspectRatio: AspectRatio
+  quality: QualityTier
 }
 
 export interface BriefData {
