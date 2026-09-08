@@ -59,6 +59,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [adapt, setAdapt] = useState<AdaptOptions>(DEFAULT_ADAPT)
 
   const [bgPreset, setBgPreset] = useState('')
+  const [customBgText, setCustomBgText] = useState('')
   const [bgImage, setBgImage] = useState<UploadedImage | null>(null)
 
   const [fileError, setFileError] = useState('')
@@ -92,7 +93,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
     e.preventDefault()
     if (!machine.trim() || !brief.trim() || !setting.trim()) return
 
-    const presetDesc = BACKGROUND_PRESETS.find((p) => p.key === bgPreset)?.description ?? ''
+    const presetDesc = bgPreset === 'custom' ? customBgText.trim() : BACKGROUND_PRESETS.find((p) => p.key === bgPreset)?.description ?? ''
 
     onGeneratePrompts({
       machine: machine.trim(),
@@ -391,7 +392,25 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
                   {p.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setBgPreset('custom')}
+                disabled={isWorking}
+                className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${bgPreset === 'custom' ? 'border-blue-500 bg-blue-600/20 text-white' : 'border-gray-600 bg-gray-700 text-gray-300 hover:border-gray-500'}`}
+              >
+                ✏️ Custom (describe it)
+              </button>
             </div>
+            {bgPreset === 'custom' && (
+              <textarea
+                value={customBgText}
+                onChange={(e) => setCustomBgText(e.target.value)}
+                placeholder="e.g. a sunlit marble kitchen island with fresh herbs and a linen towel in the background, shallow depth of field"
+                rows={2}
+                disabled={isWorking}
+                className={`${inputClass} resize-none`}
+              />
+            )}
             <label className="flex items-center justify-center gap-2 w-full bg-gray-700 border border-dashed border-gray-600 rounded-lg px-4 py-2.5 text-gray-400 cursor-pointer hover:border-blue-500 hover:text-gray-300 transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
