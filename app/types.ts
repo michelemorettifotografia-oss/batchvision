@@ -145,6 +145,12 @@ export function modelForQuality(q?: QualityTier | null): string {
   return tierFor(q).model
 }
 
+// Reverse lookup: used to price work that was queued with an explicit model
+// (e.g. Re-shoot blocks carry their own modelOverride).
+export function tierByModel(model?: string | null) {
+  return QUALITY_TIERS.find((t) => t.model === model) ?? QUALITY_TIERS[0]
+}
+
 // Estimated EUR cost string for a number of images at a given tier.
 export function estimateEur(images: number, q?: QualityTier | null): string {
   return (images * tierFor(q).usdPerImage * USD_TO_EUR).toFixed(2)

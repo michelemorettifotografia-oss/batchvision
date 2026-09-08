@@ -12,9 +12,11 @@ import {
   EMPTY_MATERIALS,
   isLoaded,
   UPSCALE_SIZES,
+  USD_TO_EUR,
   estimateEur,
   estimateUpscaleEur,
   modelForQuality,
+  tierByModel,
   type BriefData,
   type UpscaleSize,
   type ImageRef,
@@ -70,6 +72,11 @@ export default function Home() {
   const [error, setError] = useState<string>('')
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [lightbox, setLightbox] = useState<{ si: number; pi: number } | null>(null)
+  // Running estimate of what this browser session has spent. The API key is
+  // shared, so this makes each person's usage visible to them.
+  const [sessionCostEur, setSessionCostEur] = useState(0)
+
+  const addCost = (eur: number) => setSessionCostEur((c) => c + eur)
 
   const selectedCount = Object.values(selected).filter(Boolean).length
   // Standalone flows (e.g. Re-shoot) carry their own aspect ratio per block
@@ -125,9 +132,14 @@ export default function Home() {
         body: JSON.stringify(requestBodyForStyle(style, style.prompts[pi])),
       })
       const data = await readJsonSafe(res)
-      return data.imageBase64 && !data.error
-        ? { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
-        : { error: (data.error as string) || 'No image returned' }
+      if (data.imageBase64 && !data.error) {
+        // Track spend here so every path is covered once: batch runs,
+        // single regenerates and lightbox variants all land in this function.
+        const model = style.modelOverride ?? modelForQuality(briefData?.quality)
+        addCost(tierByModel(model).usdPerImage * USD_TO_EUR)
+        return { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
+      }
+      return { error: (data.error as string) || 'No image returned' }
     } catch (err) {
       return { error: err instanceof Error ? err.message : 'Request failed' }
     }
@@ -348,6 +360,8 @@ export default function Home() {
       })
       const data = await readJsonSafe(res)
       if (data.imageBase64 && !data.error) {
+        const tier = tierByModel(modelForQuality(briefData?.quality))
+        addCost((size === '4K' ? tier.usd4K : tier.usd2K) * USD_TO_EUR)
         return { imageBase64: data.imageBase64 as string, mimeType: data.mimeType as string }
       }
       return { error: (data.error as string) || 'Upscale failed' }
@@ -443,14 +457,63 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-900 text-white">
       <div className="max-w-7xl mx-auto px-4 py-10">
-        <div className="text-center mb-10">
+        <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">BatchVision</h1>
           <p className="text-gray-400 text-lg">AI Product Design Studio</p>
           <p className="text-gray-500 text-sm mt-1">Generate product design concepts from a brief or a real product photo, with Google Gemini</p>
+          {sessionCostEur > 0 && (
+            <p className="mt-3 inline-block bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-400">
+              This session: <span className="text-green-400 font-semibold">≈ €{sessionCostEur.toFixed(2)}</span> spent
+            </p>
+          )}
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex justify-center items-center gap-2 mb-8 text-xs">
+          {[
+            { key: 'input', n: 1, label: mode === 'reshoot' ? 'Photos' : 'Brief' },
+            { key: 'review', n: 2, label: 'Review' },
+            { key: 'images', n: 3, label: 'Results' },
+          ].map((s, i) => {
+            const order = ['input', 'review', 'images']
+            const done = order.indexOf(phase) > order.indexOf(s.key)
+            const active = phase === s.key
+            // Re-shoot has no review step
+            const skipped = mode === 'reshoot' && s.key === 'review'
+            return (
+              <div key={s.key} className="flex items-center gap-2">
+                {i > 0 && <span className="w-6 h-px bg-gray-700" />}
+                <span
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${
+                    skipped
+                      ? 'border-gray-800 text-gray-600 line-through'
+                      : active
+                        ? 'border-blue-500 bg-blue-600/20 text-white'
+                        : done
+                          ? 'border-green-700 text-green-400'
+                          : 'border-gray-700 text-gray-500'
+                  }`}
+                >
+                  <span className="font-semibold">{done && !skipped ? '✓' : s.n}</span>
+                  {s.label}
+                </span>
+              </div>
+            )
+          })}
         </div>
 
         {phase === 'input' && (
           <>
+            <div className="max-w-3xl mx-auto mb-6 bg-gray-800/60 border border-gray-700 rounded-xl px-5 py-4">
+              <p className="text-sm font-semibold text-gray-200 mb-1.5">How it works</p>
+              <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+                <li><span className="text-gray-300">New Design Brief</span> — describe a product and get fresh design concepts across several styles. <span className="text-gray-300">Re-shoot</span> — upload existing photos and only improve light, framing and setting, leaving the design untouched.</li>
+                <li>You <span className="text-gray-300">review and edit the prompts</span> before any image is generated, so nothing is wasted.</li>
+                <li>Images cost money per render — the <span className="text-green-400">≈ € estimate</span> is always shown before you commit. Start with few images, then expand.</li>
+                <li>Flag the good ones to <span className="text-gray-300">upscale</span>, build <span className="text-gray-300">ADV sets</span>, or download just those.</li>
+              </ol>
+              <p className="text-[11px] text-amber-400/90 mt-2">⚠️ Images live only in this browser tab — download them before closing or refreshing.</p>
+            </div>
             <div className="flex justify-center gap-2 mb-6">
               <button
                 type="button"
@@ -517,7 +580,13 @@ export default function Home() {
         {phase === 'images' && styles.length > 0 && (
           <>
             {!isWorking && (
-              <div className="mt-8 flex flex-wrap justify-center items-center gap-3">
+              <div className="mt-8 max-w-3xl mx-auto bg-amber-900/25 border border-amber-700/60 rounded-lg px-4 py-2.5 text-amber-200 text-xs text-center">
+                ⚠️ These images are not saved anywhere — they exist only in this browser tab.
+                Download them before refreshing, closing, or starting a new brief.
+              </div>
+            )}
+            {!isWorking && (
+              <div className="mt-6 flex flex-wrap justify-center items-center gap-3">
                 <DownloadButton styles={styles} selected={selected} />
                 {selectedCount > 0 && (
                   <button

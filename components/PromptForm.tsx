@@ -200,6 +200,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
                 <span className="block text-sm font-medium text-white">{t.label}</span>
                 <span className="block text-xs text-gray-400">~€{(t.usdPerImage * 0.92).toFixed(3)}/img</span>
                 <span className="block text-[11px] text-gray-500">{t.note}</span>
+                <span className="block text-[10px] text-gray-600 font-mono truncate mt-0.5" title={t.model}>{t.model}</span>
               </button>
             ))}
           </div>
