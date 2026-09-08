@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { signOut } from 'next-auth/react'
 import PromptForm from '@/components/PromptForm'
 import PromptReview from '@/components/PromptReview'
 import ReshootForm from '@/components/ReshootForm'
@@ -468,10 +469,7 @@ export default function Home() {
               </span>
             )}
             <button
-              onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' })
-                window.location.href = '/login'
-              }}
+              onClick={() => signOut({ callbackUrl: '/login' })}
               className="inline-block bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
             >
               Log out
