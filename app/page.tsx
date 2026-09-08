@@ -461,11 +461,22 @@ export default function Home() {
           <h1 className="text-4xl font-bold text-white mb-2">BatchVision</h1>
           <p className="text-gray-400 text-lg">AI Product Design Studio</p>
           <p className="text-gray-500 text-sm mt-1">Generate product design concepts from a brief or a real product photo, with Google Gemini</p>
-          {sessionCostEur > 0 && (
-            <p className="mt-3 inline-block bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-400">
-              This session: <span className="text-green-400 font-semibold">≈ €{sessionCostEur.toFixed(2)}</span> spent
-            </p>
-          )}
+          <div className="mt-3 flex items-center justify-center gap-2">
+            {sessionCostEur > 0 && (
+              <span className="inline-block bg-gray-800 border border-gray-700 rounded-full px-3 py-1 text-xs text-gray-400">
+                This session: <span className="text-green-400 font-semibold">≈ €{sessionCostEur.toFixed(2)}</span> spent
+              </span>
+            )}
+            <button
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' })
+                window.location.href = '/login'
+              }}
+              className="inline-block bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-full px-3 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              Log out
+            </button>
+          </div>
         </div>
 
         {/* Step indicator */}
