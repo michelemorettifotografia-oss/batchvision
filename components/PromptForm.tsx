@@ -50,7 +50,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [styleCount, setStyleCount] = useState(3)
   const [promptsPerStyle, setPromptsPerStyle] = useState(4)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1')
-  const [quality, setQuality] = useState<QualityTier>('economy')
+  const [quality, setQuality] = useState<QualityTier>('budget')
   const [designStyles, setDesignStyles] = useState<string[]>([])
   const [manufacturing, setManufacturing] = useState<ManufacturingConfig>(DEFAULT_MANUFACTURING)
 
@@ -187,7 +187,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-1">Quality / cost per image</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {QUALITY_TIERS.map((t) => (
               <button
                 key={t.value}

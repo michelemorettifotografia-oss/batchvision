@@ -91,12 +91,14 @@ export interface ManufacturingConfig {
 
 // Image model quality/cost tiers. usdPerImage is the approximate cost for a
 // standard 1024px image (synchronous API). Source: Google Gemini API pricing.
-export type QualityTier = 'economy' | 'standard' | 'pro'
+export type QualityTier = 'budget' | 'economy' | 'standard' | 'pro'
 
 // usd2K / usd4K are the cost of one image rendered at that resolution, used
 // for upscale estimates (economy & pro figures from Google pricing; standard
-// is interpolated).
+// is interpolated; budget's 2K/4K are estimated from the sibling Flash model
+// since Google has not published Lite-specific higher-resolution rates yet).
 export const QUALITY_TIERS: { value: QualityTier; label: string; model: string; usdPerImage: number; usd2K: number; usd4K: number; note: string }[] = [
+  { value: 'budget', label: 'Budget', model: 'gemini-3.1-flash-lite-image', usdPerImage: 0.034, usd2K: 0.101, usd4K: 0.151, note: 'Nano Banana 2 Lite · cheapest' },
   { value: 'economy', label: 'Economy', model: 'gemini-2.5-flash-image', usdPerImage: 0.039, usd2K: 0.101, usd4K: 0.151, note: 'Nano Banana · best value' },
   { value: 'standard', label: 'Standard', model: 'gemini-3.1-flash-image', usdPerImage: 0.06, usd2K: 0.12, usd4K: 0.19, note: 'Nano Banana 2 · sharper' },
   { value: 'pro', label: 'Pro', model: 'gemini-3-pro-image', usdPerImage: 0.134, usd2K: 0.134, usd4K: 0.24, note: 'Nano Banana Pro · top quality' },
@@ -118,7 +120,7 @@ export function estimateUpscaleEur(images: number, q?: QualityTier | null, size:
 }
 
 export const ALLOWED_IMAGE_MODELS = QUALITY_TIERS.map((t) => t.model)
-export const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
+export const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-lite-image'
 
 export const USD_TO_EUR = 0.92
 
