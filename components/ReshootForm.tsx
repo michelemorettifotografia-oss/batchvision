@@ -1,17 +1,27 @@
 'use client'
 
 import { useState } from 'react'
+import ModelViewerLauncher from './ModelViewerLauncher'
 import {
   ASPECT_RATIOS,
   BACKGROUND_PRESETS,
+  EMPTY_MATERIALS,
   QUALITY_TIERS,
   SHOT_PRESETS,
   estimateEur,
   type AspectRatio,
   type ImageRef,
+  type MaterialSpec,
   type QualityTier,
   type ReshootData,
 } from '@/app/types'
+
+const MATERIAL_FIELDS: { key: keyof MaterialSpec; label: string; placeholder: string }[] = [
+  { key: 'primary', label: 'Primary material', placeholder: 'e.g. brushed aluminum' },
+  { key: 'accent', label: 'Accent material', placeholder: 'e.g. walnut wood' },
+  { key: 'finish', label: 'Finish', placeholder: 'e.g. matte' },
+  { key: 'palette', label: 'Color palette', placeholder: 'e.g. warm neutrals, charcoal' },
+]
 
 interface ReshootFormProps {
   onGenerate: (data: ReshootData) => void
@@ -20,6 +30,8 @@ interface ReshootFormProps {
 
 interface UploadedImage extends ImageRef {
   preview: string
+  from3d?: boolean
+  geometryOnly?: boolean // clay 3D capture: shape only, materials come from the form
 }
 
 function readImageFile(file: File): Promise<UploadedImage> {
@@ -44,6 +56,11 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('1:1')
   const [quality, setQuality] = useState<QualityTier>('budget')
   const [fileError, setFileError] = useState('')
+  const [materials, setMaterials] = useState<MaterialSpec>({ ...EMPTY_MATERIALS })
+
+  // Clay captures have no real colors or finishes to preserve, so the user
+  // states them here instead.
+  const hasClay = photos.some((p) => p.geometryOnly)
 
   const handlePhotosUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setFileError('')
@@ -94,7 +111,8 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
     const shots = SHOT_PRESETS.filter((s) => selectedShots.includes(s.key)).map((s) => s.instruction)
 
     onGenerate({
-      photos: photos.map((p) => ({ data: p.data, mimeType: p.mimeType })),
+      photos: photos.map((p) => ({ data: p.data, mimeType: p.mimeType, from3d: p.from3d, geometryOnly: p.geometryOnly })),
+      materials: hasClay ? materials : { ...EMPTY_MATERIALS },
       shots,
       background:
         bgImage || presetDesc
@@ -113,7 +131,7 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
       <div>
         <h2 className="text-lg font-semibold text-gray-100">Re-shoot Existing Photos</h2>
         <p className="text-gray-500 text-sm mt-1">
-          Same product, same design — only lighting, framing and environment change. Materials, colors and finishes stay exactly as in the photo.
+          Same product, same design — only lighting, framing and environment change. Materials, colors and finishes stay exactly as in the photo. You can also render from a 3D model: capture views and they are treated as photos.
         </p>
       </div>
 
@@ -126,6 +144,11 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
               <div key={i} className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={p.preview} alt={`Photo ${i + 1}`} className="w-20 h-20 object-cover rounded-lg border border-gray-600" />
+                {p.from3d && (
+                  <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                    3D{p.geometryOnly ? ' · clay' : ''}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => removePhoto(i)}
@@ -146,7 +169,51 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
           <span className="text-sm">{photos.length > 0 ? 'Add more photos' : 'Upload one or more product photos'}</span>
           <input type="file" accept="image/*" multiple onChange={handlePhotosUpload} disabled={isWorking} className="hidden" />
         </label>
+        <ModelViewerLauncher
+          label="…or render from a 3D model (GLB / OBJ / STL)"
+          maxCaptures={6}
+          disabled={isWorking}
+          onUse={(caps) =>
+            setPhotos((prev) => [
+              ...prev,
+              ...caps.map((c) => ({
+                data: c.data,
+                mimeType: c.mimeType,
+                preview: c.preview,
+                from3d: true,
+                geometryOnly: c.geometryOnly,
+              })),
+            ])
+          }
+        />
       </section>
+
+      {/* ---- Materials for clay 3D captures ---- */}
+      {hasClay && (
+        <section className="space-y-3 border-t border-gray-700 pt-6">
+          <h3 className="text-sm font-semibold text-gray-200">
+            Materials for 3D views <span className="text-gray-500 font-normal">(optional)</span>
+          </h3>
+          <p className="text-gray-500 text-xs">
+            Clay captures only define the shape — the grey is not real. Say what the product should be made of; leave blank to let the AI choose plausible materials.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {MATERIAL_FIELDS.map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label className="block text-xs text-gray-400 mb-1">{label}</label>
+                <input
+                  type="text"
+                  value={materials[key]}
+                  onChange={(e) => setMaterials((m) => ({ ...m, [key]: e.target.value }))}
+                  placeholder={placeholder}
+                  disabled={isWorking}
+                  className={`${inputClass} text-sm`}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ---- Shots ---- */}
       <section className="space-y-3 border-t border-gray-700 pt-6">
@@ -269,7 +336,7 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
                 <span className="block text-sm font-medium text-white">{t.label}</span>
                 <span className="block text-xs text-gray-400">~€{(t.usdPerImage * 0.92).toFixed(3)}/img</span>
                 <span className="block text-[11px] text-gray-500">{t.note}</span>
-                <span className="block text-[10px] text-gray-600 font-mono truncate mt-0.5" title={t.model}>{t.model}</span>
+                <span className="block text-[10px] text-gray-400 font-mono break-all leading-tight mt-0.5" title={t.model}>{t.model}</span>
               </button>
             ))}
           </div>

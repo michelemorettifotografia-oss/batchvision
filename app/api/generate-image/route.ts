@@ -8,7 +8,7 @@ interface RequestBody {
   materials?: MaterialSpec | null
   aspectRatio?: AspectRatio | null
   manufacturing?: ManufacturingConfig | null
-  reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
+  reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions; geometryOnly?: boolean } | null
   background?: { description: string; image: ImageRef | null } | null
   // Photo re-shoot mode: keep the product 100% as-is (materials, colors,
   // finish, geometry) and only change lighting, framing, environment and
@@ -37,6 +37,25 @@ const REALISM_GUARDRAILS =
   'nonsensical components, warped or fake text and logos, extra nozzles/handles/ports, or surreal elements. ' +
   'Keep the number of parts, ports and controls realistic, symmetric where expected, and manufacturable. ' +
   'If unsure about a detail, prefer a simple, clean, believable solution over an invented one.'
+
+// Appended to the normal reference instructions when the reference is an
+// untextured 3D viewport capture. Without this the model tends to copy the
+// flat grey clay look and plain background straight into the "render".
+const GEOMETRY_ONLY_NOTE =
+  'IMPORTANT: this image is an untextured 3D viewport capture, not a photo. Use it ONLY for shape, proportions, parts and layout. ' +
+  'Its grey clay shading, flat lighting and plain background are NOT real — do not copy them. ' +
+  'Render the product with realistic materials, finishes and lighting as described below. '
+
+// lockDesign + geometry-only: the shape is fixed, but there are no real
+// colors or finishes in the capture to preserve, so materials are applied.
+const GEOMETRY_LOCK_INSTRUCTION =
+  'The attached image is an untextured 3D viewport capture of the real product. Reproduce its geometry with 100% fidelity: ' +
+  'same shape, proportions, parts, controls and layout — do not redesign, and do not add, remove or move any part. ' +
+  'Its grey clay shading, flat lighting and plain background are NOT real: do not copy them. Render the product with realistic ' +
+  'photographic materials and finishes as specified below; if none are specified, choose plausible, realistic materials for this ' +
+  'kind of product. Change only what is requested below: camera framing/angle, lighting and the environment/background. ' +
+  'Treat this as a professional photograph of the finished product: perfectly sharp focus, clean refined lighting, no motion blur, ' +
+  'no compression artifacts, no added noise. '
 
 function adaptToText(adapt: AdaptOptions): string {
   const allowed: string[] = []
@@ -72,20 +91,23 @@ export async function POST(req: NextRequest) {
     let instruction = ''
 
     const hasReference = !!reference?.image?.data
+    const geometryOnly = !!reference?.geometryOnly
     const hasBgImage = !!background?.image?.data
 
     if (hasReference && reference?.image) {
       parts.push({ inlineData: { data: reference.image.data, mimeType: reference.image.mimeType } })
       if (lockDesign) {
-        instruction += LOCK_DESIGN_INSTRUCTION
+        instruction += geometryOnly ? GEOMETRY_LOCK_INSTRUCTION : LOCK_DESIGN_INSTRUCTION
       } else if (reference.mode === 'exact') {
         instruction +=
           'The first attached image is the actual product. Reproduce THIS EXACT product — identical geometry, proportions, parts, controls and layout. Do not change its structure or invent new parts; only apply the restyling, materials and scene described below. '
+        if (geometryOnly) instruction += GEOMETRY_ONLY_NOTE
       } else {
         instruction +=
           'The first attached image is the actual product. Keep its overall proportions, dimensions and general layout as the base.' +
           adaptToText(reference.adapt) +
           ' Otherwise keep the product recognizable. '
+        if (geometryOnly) instruction += GEOMETRY_ONLY_NOTE
       }
     }
 
@@ -96,10 +118,11 @@ export async function POST(req: NextRequest) {
 
     instruction += prompt
 
-    // Materials/manufacturing instructions describe a NEW design direction —
-    // skip them entirely under lockDesign so nothing contradicts "keep the
-    // product 100% identical".
-    if (!lockDesign) {
+    // Materials describe a NEW design direction — skip them under lockDesign
+    // so nothing contradicts "keep the product 100% identical". The exception
+    // is a geometry-only 3D capture: it has no real materials to preserve, so
+    // the requested ones are exactly what is needed.
+    if (!lockDesign || geometryOnly) {
       const mt = materialsToText(materials)
       if (mt) instruction += `\n${mt}`
     }
