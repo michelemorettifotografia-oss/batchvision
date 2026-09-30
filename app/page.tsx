@@ -538,7 +538,7 @@ export default function Home() {
                 <li><span className="text-gray-300">New Design Brief</span> — describe a product and get fresh design concepts across several styles. <span className="text-gray-300">Re-shoot</span> — upload existing photos and only improve light, framing and setting, leaving the design untouched.</li>
                 <li>You <span className="text-gray-300">review and edit the prompts</span> before any image is generated, so nothing is wasted.</li>
                 <li>Images cost money per render — the <span className="text-green-400">≈ € estimate</span> is always shown before you commit. Start with few images, then expand.</li>
-                <li>Your reference can be a photo or a <span className="text-gray-300">3D model</span> (GLB, OBJ, STL) — rotate it, capture the views you want, and they become the reference.</li>
+                <li>Your reference can be a photo or a <span className="text-gray-300">3D model</span> (STEP, GLB, OBJ, STL) — rotate it, capture the views you want, and they become the reference.</li>
                 <li>Flag the good ones to <span className="text-gray-300">upscale</span>, build <span className="text-gray-300">ADV sets</span>, or download just those.</li>
               </ol>
               <p className="text-[11px] text-amber-400/90 mt-2">⚠️ Images live only in this browser tab — download them before closing or refreshing.</p>

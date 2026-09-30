@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "node scripts/copy-occt.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -14,6 +15,7 @@
     "jszip": "^3.10.1",
     "next": "14.2.5",
     "next-auth": "^4.24.15",
+    "occt-import-js": "^0.0.23",
     "react": "^18",
     "react-dom": "^18",
     "three": "^0.186.1"
