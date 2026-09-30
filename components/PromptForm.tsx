@@ -319,7 +319,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
               <input type="file" accept="image/*" onChange={(e) => handleUpload(e, setReferencePhoto)} disabled={isWorking} className="hidden" />
             </label>
             <ModelViewerLauncher
-              label="…or start from a 3D model (GLB / OBJ / STL)"
+              label="…or start from a 3D model (STEP / GLB / OBJ / STL)"
               maxCaptures={1}
               disabled={isWorking}
               onUse={(caps) => {

@@ -27,3 +27,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# OpenCascade WASM copied from node_modules by scripts/copy-occt.js (postinstall);
+# the worker next to it is ours and stays tracked.
+/public/occt/*
+!/public/occt/step-worker.js

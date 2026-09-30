@@ -170,7 +170,7 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
           <input type="file" accept="image/*" multiple onChange={handlePhotosUpload} disabled={isWorking} className="hidden" />
         </label>
         <ModelViewerLauncher
-          label="…or render from a 3D model (GLB / OBJ / STL)"
+          label="…or render from a 3D model (STEP / GLB / OBJ / STL)"
           maxCaptures={6}
           disabled={isWorking}
           onUse={(caps) =>

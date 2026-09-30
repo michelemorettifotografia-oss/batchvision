@@ -36,7 +36,79 @@ interface Engine {
 type RenderMode = 'clay' | 'original'
 
 const MAX_FILE_BYTES = 80 * 1024 * 1024
-const SUPPORTED = ['glb', 'gltf', 'obj', 'stl']
+const MESH_FORMATS = ['glb', 'gltf', 'obj', 'stl']
+// CAD exchange formats, tessellated in the browser by OpenCascade (WASM).
+const CAD_FORMATS: Record<string, 'step' | 'iges'> = { step: 'step', stp: 'step', iges: 'iges', igs: 'iges' }
+const SUPPORTED = [...MESH_FORMATS, ...Object.keys(CAD_FORMATS)]
+const ACCEPT = SUPPORTED.map((e) => `.${e}`).join(',')
+const CAD_TIMEOUT_MS = 180_000
+
+// Shape of what occt-import-js returns (three.js-compatible geometry).
+interface OcctMesh {
+  name?: string
+  color?: [number, number, number]
+  attributes: { position: { array: ArrayLike<number> }; normal?: { array: ArrayLike<number> } }
+  index: { array: ArrayLike<number> }
+}
+interface OcctResult {
+  success: boolean
+  meshes: OcctMesh[]
+}
+
+// Tessellates a STEP/IGES file in a worker so the page doesn't freeze. The
+// worker is created per file and terminated afterwards, releasing the WASM
+// heap (large assemblies can take tens of MB).
+function readCad(
+  buffer: ArrayBuffer,
+  format: 'step' | 'iges',
+  register: (w: Worker | null) => void
+): Promise<OcctResult> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker('/occt/step-worker.js')
+    register(worker)
+    const done = () => {
+      clearTimeout(timer)
+      worker.terminate()
+      register(null)
+    }
+    const timer = setTimeout(() => {
+      done()
+      reject(new Error('timeout'))
+    }, CAD_TIMEOUT_MS)
+    worker.onmessage = (ev: MessageEvent<{ result?: OcctResult; error?: string }>) => {
+      done()
+      if (ev.data.error || !ev.data.result) reject(new Error(ev.data.error || 'no result'))
+      else resolve(ev.data.result)
+    }
+    worker.onerror = (ev) => {
+      done()
+      reject(new Error(ev.message || 'worker failed'))
+    }
+    // Transfer rather than copy: the file buffer can be tens of MB.
+    worker.postMessage({ id: 1, format, buffer }, [buffer])
+  })
+}
+
+function cadToObject(result: OcctResult): { object: THREE.Group; hasColor: boolean } {
+  const group = new THREE.Group()
+  let hasColor = false
+  for (const m of result.meshes) {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(Float32Array.from(m.attributes.position.array), 3))
+    if (m.attributes.normal) {
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(Float32Array.from(m.attributes.normal.array), 3))
+    }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(m.index.array), 1))
+    if (!m.attributes.normal) geometry.computeVertexNormals()
+
+    if (m.color) hasColor = true
+    const color = m.color ? new THREE.Color(m.color[0], m.color[1], m.color[2]) : new THREE.Color(0xbdbdbd)
+    group.add(
+      new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide }))
+    )
+  }
+  return { object: group, hasColor }
+}
 
 function disposeObject(root: THREE.Object3D) {
   root.traverse((o) => {
@@ -59,6 +131,7 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
   const engineRef = useRef<Engine | null>(null)
   const originalsRef = useRef<Map<THREE.Mesh, THREE.Material | THREE.Material[]>>(new Map())
   const clayRef = useRef<THREE.MeshStandardMaterial | null>(null)
+  const cadWorkerRef = useRef<Worker | null>(null)
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const [error, setError] = useState('')
@@ -143,6 +216,9 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
     const originals = originalsRef.current
 
     return () => {
+      // Closing mid-way through a big STEP must not leave OpenCascade running.
+      cadWorkerRef.current?.terminate()
+      cadWorkerRef.current = null
       ro.disconnect()
       controls.removeEventListener('change', render)
       controls.dispose()
@@ -212,12 +288,12 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
       const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
       if (!SUPPORTED.includes(ext)) {
         setStatus('error')
-        setError('Unsupported format. Export your model as GLB, OBJ or STL (STEP, IGES and native CAD files cannot be read in the browser).')
+        setError('Unsupported format. Use STEP, IGES, GLB, OBJ or STL. Native CAD files (.sldprt, .f3d, .3dm, .ipt…) must be exported to STEP first.')
         return
       }
       if (file.size > MAX_FILE_BYTES) {
         setStatus('error')
-        setError('File too large (max 80 MB). Try decimating the mesh or exporting a lighter GLB.')
+        setError('File too large (max 80 MB). Try exporting a lighter file or a single part instead of the whole assembly.')
         return
       }
 
@@ -225,11 +301,25 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
       setError('')
       setFileName(file.name)
 
+      const cadFormat = CAD_FORMATS[ext]
+
       try {
         let object: THREE.Object3D
         let original = false
 
-        if (ext === 'glb' || ext === 'gltf') {
+        if (cadFormat) {
+          // Let the loading state paint before the worker starts.
+          await new Promise((r) => setTimeout(r, 30))
+          const result = await readCad(await file.arrayBuffer(), cadFormat, (w) => {
+            cadWorkerRef.current = w
+          })
+          if (!result.success || result.meshes.length === 0) throw new Error('empty')
+          const cad = cadToObject(result)
+          object = cad.object
+          // STEP colors are often just a default grey, so start in clay and let
+          // the user opt in to the file's own colors when it has any.
+          original = cad.hasColor
+        } else if (ext === 'glb' || ext === 'gltf') {
           const buf = await file.arrayBuffer()
           const gltf = await new Promise<GLTF>((resolve, reject) =>
             new GLTFLoader().parse(buf, '', resolve, reject)
@@ -256,8 +346,8 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
         })
         engine.pivot.add(object)
 
-        const mode: RenderMode = original ? 'original' : 'clay'
-        const z = ext === 'stl' // CAD exports are usually Z-up
+        const mode: RenderMode = original && !cadFormat ? 'original' : 'clay'
+        const z = ext === 'stl' || !!cadFormat // CAD exports are usually Z-up
         setHasOriginal(original)
         setRenderMode(mode)
         setZUp(z)
@@ -269,10 +359,15 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
       } catch (err) {
         console.error('3D load failed:', err)
         setStatus('error')
+        const timedOut = err instanceof Error && err.message === 'timeout'
         setError(
-          ext === 'gltf'
-            ? 'Could not read this glTF. It may reference external files — export a single self-contained GLB instead.'
-            : 'Could not read this file. If it is a GLB with Draco/Meshopt compression, re-export it uncompressed.'
+          cadFormat
+            ? timedOut
+              ? 'This CAD file took too long to process. Try exporting a single part, or a simplified assembly.'
+              : 'Could not read this STEP/IGES file. It may be empty, corrupted, or not a solid/surface model — try re-exporting it from your CAD tool.'
+            : ext === 'gltf'
+              ? 'Could not read this glTF. It may reference external files — export a single self-contained GLB instead.'
+              : 'Could not read this file. If it is a GLB with Draco/Meshopt compression, re-export it uncompressed.'
         )
       }
     },
@@ -310,7 +405,7 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
         <div>
           <p className="text-sm font-semibold">3D model → reference</p>
           <p className="text-xs text-gray-400">
-            {fileName ? fileName : 'Load a GLB, OBJ or STL file. It stays in your browser and is never uploaded.'}
+            {fileName ? fileName : 'Load a STEP, IGES, GLB, OBJ or STL file. It stays in your browser and is never uploaded.'}
           </p>
         </div>
         <button type="button" onClick={onClose} className="text-gray-300 hover:text-white p-1" title="Close (Esc)">
@@ -340,11 +435,11 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
             </svg>
             <span className="text-sm font-medium">Drop a 3D file here, or click to choose</span>
-            <span className="text-xs">GLB · OBJ · STL</span>
+            <span className="text-xs">STEP · IGES · GLB · OBJ · STL</span>
             {error && <span className="text-xs text-red-600 max-w-md mt-2">{error}</span>}
             <input
               type="file"
-              accept=".glb,.gltf,.obj,.stl"
+              accept={ACCEPT}
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0]
@@ -405,7 +500,7 @@ export default function ModelViewer({ maxCaptures, onUse, onClose }: ModelViewer
               Change file
               <input
                 type="file"
-                accept=".glb,.gltf,.obj,.stl"
+                accept={ACCEPT}
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0]
