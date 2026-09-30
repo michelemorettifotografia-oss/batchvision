@@ -5,6 +5,7 @@ import ModelViewerLauncher from './ModelViewerLauncher'
 import {
   ASPECT_RATIOS,
   BACKGROUND_PRESETS,
+  CORE_SHOT_KEYS,
   EMPTY_MATERIALS,
   QUALITY_TIERS,
   SHOT_PRESETS,
@@ -49,7 +50,7 @@ function readImageFile(file: File): Promise<UploadedImage> {
 
 export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps) {
   const [photos, setPhotos] = useState<UploadedImage[]>([])
-  const [selectedShots, setSelectedShots] = useState<string[]>(SHOT_PRESETS.map((s) => s.key))
+  const [selectedShots, setSelectedShots] = useState<string[]>(CORE_SHOT_KEYS)
   const [bgPreset, setBgPreset] = useState('')
   const [customBgText, setCustomBgText] = useState('')
   const [bgImage, setBgImage] = useState<UploadedImage | null>(null)
@@ -97,6 +98,10 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
       setFileError('Could not read that image')
     }
   }
+
+  // The slider is just another way to set selectedShots (the single source of
+  // truth): it takes the first n shot types in catalogue order.
+  const setShotCount = (n: number) => setSelectedShots(SHOT_PRESETS.slice(0, n).map((s) => s.key))
 
   const toggleShot = (key: string) =>
     setSelectedShots((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
@@ -218,6 +223,21 @@ export default function ReshootForm({ onGenerate, isWorking }: ReshootFormProps)
       {/* ---- Shots ---- */}
       <section className="space-y-3 border-t border-gray-700 pt-6">
         <h3 className="text-sm font-semibold text-gray-200">Shots to Generate <span className="text-gray-500 font-normal">(per photo)</span></h3>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Images per photo: {selectedShots.length}</label>
+          <input
+            type="range"
+            min={1}
+            max={SHOT_PRESETS.length}
+            value={Math.max(1, selectedShots.length)}
+            onChange={(e) => setShotCount(Number(e.target.value))}
+            disabled={isWorking}
+            className="w-full accent-blue-500"
+          />
+          <p className="text-gray-500 text-xs mt-1">
+            The slider picks the first {selectedShots.length || 1} shot type{selectedShots.length === 1 ? '' : 's'} below. To choose specific ones, tick or untick them — the number follows.
+          </p>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {SHOT_PRESETS.map((s) => (
             <label key={s.key} className="flex items-start gap-2 text-sm text-gray-300 cursor-pointer bg-gray-750 border border-gray-700 rounded-lg px-3 py-2">

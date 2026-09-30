@@ -51,9 +51,22 @@ export const SHOT_PRESETS: { key: string; label: string; instruction: string }[]
   { key: 'lifestyle', label: 'Lifestyle Bright', instruction: 'Lifestyle wide shot placed in a bright modern interior with natural daylight and shallow depth of field' },
   { key: 'macro', label: 'Macro Detail', instruction: 'Extreme close-up macro detail of a key feature, crisp studio lighting highlighting real existing materials and finish' },
   { key: 'topdown', label: 'Top-Down Flat', instruction: 'Top-down flat-lay composition on a textured surface with minimal styling props, bright even lighting' },
+  // Extras: opt-in in Re-shoot so a photo can yield more than five distinct
+  // results. They keep the original viewpoint and vary light, crop and space,
+  // because a different angle would make the model invent sides of the
+  // product that the photo never shows.
+  { key: 'tightcrop', label: 'Tight Crop', instruction: 'Tighter hero crop from the same viewpoint as the reference, the product filling most of the frame, soft key light, shallow depth of field' },
+  { key: 'copyspace', label: 'Copy Space', instruction: 'Wide advertising composition with the product placed off-center and generous clean negative space on one side for headline copy, soft natural light' },
+  { key: 'golden', label: 'Golden Hour', instruction: 'Warm golden-hour light raking across the product from the side, long soft shadows, natural setting' },
+  { key: 'window', label: 'Soft Window Light', instruction: 'Soft overcast window light from one side, gentle shadows, calm bright interior' },
+  { key: 'rim', label: 'Rim Light', instruction: 'Low-key studio shot with strong rim lighting tracing the silhouette against a dark backdrop, deep shadows' },
 ]
 
-export const ADV_SHOTS: string[] = SHOT_PRESETS.map((s) => s.instruction)
+// The five original framings. ADV sets and the Re-shoot default use exactly
+// these: ADV is derived from this list rather than from all of SHOT_PRESETS,
+// otherwise adding an extra above would silently double what every ADV set costs.
+export const CORE_SHOT_KEYS = SHOT_PRESETS.slice(0, 5).map((s) => s.key)
+export const ADV_SHOTS: string[] = SHOT_PRESETS.filter((s) => CORE_SHOT_KEYS.includes(s.key)).map((s) => s.instruction)
 
 export type ReferenceMode = 'exact' | 'adapt'
 
