@@ -116,9 +116,19 @@ export default function Home() {
       manufacturing: style.lockDesign ? null : briefData?.manufacturing ?? null,
       lockDesign: style.lockDesign ?? false,
       reference: override
-        ? { image: override, mode: 'exact' as const, adapt: { moveNozzles: false, changeButtons: false, modifyLights: false, generateProposals: false, notes: '' } }
+        ? {
+            image: override,
+            mode: 'exact' as const,
+            adapt: { moveNozzles: false, changeButtons: false, modifyLights: false, generateProposals: false, notes: '' },
+            geometryOnly: style.geometryOnly ?? false,
+          }
         : briefData?.reference?.image
-          ? { image: briefData.reference.image, mode: briefData.reference.mode, adapt: briefData.reference.adapt }
+          ? {
+              image: briefData.reference.image,
+              mode: briefData.reference.mode,
+              adapt: briefData.reference.adapt,
+              geometryOnly: briefData.reference.geometryOnly ?? false,
+            }
           : null,
       background,
     }
@@ -262,12 +272,21 @@ export default function Home() {
     if (data.photos.length === 0 || data.shots.length === 0) return
 
     const blocks: StyleData[] = data.photos.map((photo, idx) => ({
-      name: data.photos.length > 1 ? `Re-shoot — Photo ${idx + 1}` : 'Re-shoot',
-      description: 'Same product, unchanged design — new light, framing & environment only',
-      materials: EMPTY_MATERIALS,
+      name: photo.from3d
+        ? `3D render — View ${idx + 1}`
+        : data.photos.length > 1
+          ? `Re-shoot — Photo ${idx + 1}`
+          : 'Re-shoot',
+      description: photo.geometryOnly
+        ? 'Shape from your 3D model — materials applied, new light, framing & environment'
+        : 'Same product, unchanged design — new light, framing & environment only',
+      // Only clay 3D captures take materials; real photos must keep theirs.
+      materials: photo.geometryOnly ? data.materials : EMPTY_MATERIALS,
       prompts: data.shots.map((shot) => `Professional product photograph, same exact product as the reference. ${shot}.`),
       images: new Array(data.shots.length).fill(null),
-      referenceOverride: photo,
+      // Strip the UI-only flags so only the image itself is sent as the reference.
+      referenceOverride: { data: photo.data, mimeType: photo.mimeType },
+      geometryOnly: !!photo.geometryOnly,
       backgroundOverride: data.background,
       aspectRatioOverride: data.aspectRatio,
       modelOverride: modelForQuality(data.quality),
@@ -519,6 +538,7 @@ export default function Home() {
                 <li><span className="text-gray-300">New Design Brief</span> — describe a product and get fresh design concepts across several styles. <span className="text-gray-300">Re-shoot</span> — upload existing photos and only improve light, framing and setting, leaving the design untouched.</li>
                 <li>You <span className="text-gray-300">review and edit the prompts</span> before any image is generated, so nothing is wasted.</li>
                 <li>Images cost money per render — the <span className="text-green-400">≈ € estimate</span> is always shown before you commit. Start with few images, then expand.</li>
+                <li>Your reference can be a photo or a <span className="text-gray-300">3D model</span> (GLB, OBJ, STL) — rotate it, capture the views you want, and they become the reference.</li>
                 <li>Flag the good ones to <span className="text-gray-300">upscale</span>, build <span className="text-gray-300">ADV sets</span>, or download just those.</li>
               </ol>
               <p className="text-[11px] text-amber-400/90 mt-2">⚠️ Images live only in this browser tab — download them before closing or refreshing.</p>

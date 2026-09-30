@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import TagSelector from './TagSelector'
+import ModelViewerLauncher from './ModelViewerLauncher'
 import {
   ASPECT_RATIOS,
   BACKGROUND_PRESETS,
@@ -55,6 +56,15 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
   const [manufacturing, setManufacturing] = useState<ManufacturingConfig>(DEFAULT_MANUFACTURING)
 
   const [referenceImage, setReferenceImage] = useState<UploadedImage | null>(null)
+  // Where the reference came from. A clay 3D capture is geometry-only: the
+  // generation must take its shape but not its grey shading.
+  const [referenceMeta, setReferenceMeta] = useState({ is3d: false, geometryOnly: false })
+
+  const setReferencePhoto = (img: UploadedImage | null) => {
+    setReferenceImage(img)
+    setReferenceMeta({ is3d: false, geometryOnly: false })
+  }
+  const clearReference = () => setReferencePhoto(null)
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>('exact')
   const [adapt, setAdapt] = useState<AdaptOptions>(DEFAULT_ADAPT)
 
@@ -108,6 +118,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
       manufacturing,
       reference: {
         image: referenceImage ? { data: referenceImage.data, mimeType: referenceImage.mimeType } : null,
+        geometryOnly: referenceImage ? referenceMeta.geometryOnly : false,
         mode: referenceMode,
         adapt,
       },
@@ -200,7 +211,7 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
                 <span className="block text-sm font-medium text-white">{t.label}</span>
                 <span className="block text-xs text-gray-400">~€{(t.usdPerImage * 0.92).toFixed(3)}/img</span>
                 <span className="block text-[11px] text-gray-500">{t.note}</span>
-                <span className="block text-[10px] text-gray-600 font-mono truncate mt-0.5" title={t.model}>{t.model}</span>
+                <span className="block text-[10px] text-gray-400 font-mono break-all leading-tight mt-0.5" title={t.model}>{t.model}</span>
               </button>
             ))}
           </div>
@@ -284,18 +295,41 @@ export default function PromptForm({ onGeneratePrompts, isWorking }: PromptFormP
           <div className="flex items-center gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={referenceImage.preview} alt="Reference" className="w-20 h-20 object-cover rounded-lg border border-gray-600" />
-            <button type="button" onClick={() => setReferenceImage(null)} disabled={isWorking} className="text-sm text-red-400 hover:text-red-300 disabled:opacity-50">
-              Remove
-            </button>
+            <div className="text-sm">
+              {referenceMeta.is3d && (
+                <p className="text-gray-400 text-xs mb-1">
+                  3D capture ·{' '}
+                  {referenceMeta.geometryOnly
+                    ? 'shape only — materials come from your brief'
+                    : 'original colors kept'}
+                </p>
+              )}
+              <button type="button" onClick={clearReference} disabled={isWorking} className="text-red-400 hover:text-red-300 disabled:opacity-50">
+                Remove
+              </button>
+            </div>
           </div>
         ) : (
-          <label className="flex items-center justify-center gap-2 w-full bg-gray-700 border border-dashed border-gray-600 rounded-lg px-4 py-3 text-gray-400 cursor-pointer hover:border-blue-500 hover:text-gray-300 transition-colors">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span className="text-sm">Upload product photo</span>
-            <input type="file" accept="image/*" onChange={(e) => handleUpload(e, setReferenceImage)} disabled={isWorking} className="hidden" />
-          </label>
+          <div className="space-y-2">
+            <label className="flex items-center justify-center gap-2 w-full bg-gray-700 border border-dashed border-gray-600 rounded-lg px-4 py-3 text-gray-400 cursor-pointer hover:border-blue-500 hover:text-gray-300 transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-sm">Upload product photo</span>
+              <input type="file" accept="image/*" onChange={(e) => handleUpload(e, setReferencePhoto)} disabled={isWorking} className="hidden" />
+            </label>
+            <ModelViewerLauncher
+              label="…or start from a 3D model (GLB / OBJ / STL)"
+              maxCaptures={1}
+              disabled={isWorking}
+              onUse={(caps) => {
+                const c = caps[0]
+                if (!c) return
+                setReferenceImage({ data: c.data, mimeType: c.mimeType, preview: c.preview })
+                setReferenceMeta({ is3d: true, geometryOnly: c.geometryOnly })
+              }}
+            />
+          </div>
         )}
 
         {referenceImage && (

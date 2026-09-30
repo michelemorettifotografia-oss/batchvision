@@ -12,7 +12,7 @@ CRITICAL RULES — staying on subject:
 - Never drift to unrelated objects, people, animals, abstract scenes, logos, text overlays or props that distract from the product.
 - Keep the product's core function, form factor and proportions recognizable across all prompts. Only the style, materials, finish, setting, angle and lighting change.
 - If the user provides an "Avoid" / constraints list, never include those elements.
-- If a reference product photo is attached, treat it as the ground truth for the product's shape, proportions and identity. Extract its real materials and color cues; do not invent a different product.
+- If a reference product photo is attached, treat it as the ground truth for the product's shape, proportions and identity. Extract its real materials and color cues; do not invent a different product. EXCEPTION: if the user states the reference is an untextured 3D viewport capture (geometry only), use it for shape, proportions and layout ONLY — its grey shading is not real, so take materials and colors from each style instead, never from the image.
 - If the user specifies a background/scene, place the product in that environment consistently across the prompts.
 - If the user provides a list of design styles, use those exact styles first (one per style block, in order). If more styles are needed to reach the count, add complementary ones.
 - If the user provides manufacturing processes or constraints, every style's geometry and materials MUST be realistically producible with them. Prefer simple, low-tooling-cost construction; avoid forms that need expensive custom molds or complex multi-axis machining when asked to.
@@ -53,7 +53,7 @@ interface RequestBody {
   promptsPerStyle?: number
   designStyles?: string[]
   manufacturing?: ManufacturingConfig
-  reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions } | null
+  reference?: { image: ImageRef | null; mode: ReferenceMode; adapt: AdaptOptions; geometryOnly?: boolean } | null
   background?: { description: string; image: ImageRef | null } | null
 }
 
@@ -104,6 +104,9 @@ export async function POST(req: NextRequest) {
         if (reference.adapt.generateProposals) mods.push('bolder design variations that transform the product are encouraged')
         userPrompt += `\nA reference product photo is attached. Keep its overall proportions and dimensions, but you may adapt the design: ${mods.length ? mods.join('; ') : 'minor refinements only'}.`
         if (reference.adapt.notes?.trim()) userPrompt += ` Extra direction: ${reference.adapt.notes.trim()}.`
+      }
+      if (reference.geometryOnly) {
+        userPrompt += `\nThe attached reference is an untextured 3D viewport capture (geometry only), not a photo. Use it for shape, proportions and layout ONLY. Ignore its grey color and flat shading: materials and colors must come from each style, never from the image.`
       }
     }
 

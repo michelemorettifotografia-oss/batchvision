@@ -38,6 +38,10 @@ export interface StyleData {
   // materials, colors, finish and geometry — only lighting, framing,
   // environment and photographic quality may change. Used by Re-shoot.
   lockDesign?: boolean
+  // The block's reference is a geometry-only (clay) 3D capture. With
+  // lockDesign this keeps the shape fixed but applies `materials`, since the
+  // capture has no real colors or finishes to preserve.
+  geometryOnly?: boolean
 }
 
 // Framing & lighting treatments shared by ADV sets and photo re-shoots.
@@ -65,6 +69,10 @@ export interface ReferenceConfig {
   image: ImageRef | null
   mode: ReferenceMode
   adapt: AdaptOptions
+  // True when the reference is an untextured 3D viewport capture: it conveys
+  // shape, proportions and layout only. Its grey clay shading and flat
+  // lighting are not real and must not be copied into the render.
+  geometryOnly?: boolean
 }
 
 export interface BackgroundConfig {
@@ -158,8 +166,14 @@ export function estimateEur(images: number, q?: QualityTier | null): string {
 
 // Config for the "Re-shoot" flow: take existing product photos and only
 // change lighting, framing and environment/background — never the design.
+export interface ReshootPhoto extends ImageRef {
+  from3d?: boolean        // captured from a 3D model rather than uploaded
+  geometryOnly?: boolean  // clay capture: shape only, materials come from ReshootData.materials
+}
+
 export interface ReshootData {
-  photos: ImageRef[]
+  photos: ReshootPhoto[]
+  materials: MaterialSpec             // applied to geometry-only (clay) 3D captures
   shots: string[]                    // chosen shot instruction strings (from SHOT_PRESETS)
   background: BackgroundConfig | null
   aspectRatio: AspectRatio
